@@ -1,9 +1,8 @@
+use dashmap::DashMap;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use dashmap::DashMap;
-use uuid::Uuid;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::api::{CredentialApi, CredentialPersistence, CredentialStoreApi};
 use crate::{Credential, Error, Result};
@@ -136,9 +135,13 @@ pub struct Store {
 
 impl Default for Store {
     fn default() -> Self {
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
         Store {
             vendor: "keyring::sample".to_string(),
-            id: Uuid::new_v4().to_string(),
+            id: format!("sample-{}", millis % 100000),
             credentials: Arc::new(DashMap::new()),
         }
     }

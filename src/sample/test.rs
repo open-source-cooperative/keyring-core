@@ -28,7 +28,7 @@ fn entry_new_with_modifiers(service: &str, user: &str, mods: &HashMap<&str, &str
 fn generate_random_string() -> String {
     use fastrand;
     use std::iter::repeat_with;
-    repeat_with(fastrand::alphanumeric).take(30).collect()
+    repeat_with(fastrand::alphanumeric).take(12).collect()
 }
 
 fn generate_random_bytes() -> Vec<u8> {

@@ -6,20 +6,18 @@ keywords = ["password", "secret", "credential", "keychain", "cross-platform"]
 license = "MIT OR Apache-2.0"
 name = "keyring-core"
 repository = "https://github.com/open-source-cooperative/keyring-core.git"
-version = "1.0.0-alpha.1"
+version = "0.1.0"
 rust-version = "1.85"
 edition = "2024"
 exclude = [".github/"]
 readme = "README.md"
 
 [features]
-sample = ["dep:uuid", "dep:chrono", "dep:dashmap"]
+sample = ["dep:dashmap"]
 
 [dependencies]
-chrono = { version = "0.4.41", optional = true }
 dashmap = { version = "6.1.0", optional = true }
 log = "0.4"
-uuid = { version = "1.17.0", features = ["v4"], optional = true }
 
 [dev-dependencies]
 doc-comment = "0.3"

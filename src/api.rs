@@ -164,9 +164,6 @@ pub trait CredentialStoreApi {
     /// The name of the "vendor" that provided this store.
     ///
     /// This allows clients to conditionalize their code for specific vendors.
-    ///
-    /// By convention, if the store is implemented by a Rust crate,
-    /// this is the name of that crate.
     fn vendor(&self) -> String;
 
     /// The ID of this credential store instance.

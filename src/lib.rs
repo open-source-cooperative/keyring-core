@@ -243,7 +243,7 @@ impl Entry {
     /// will panic. If you encounter this, and especially if you can reproduce it, please report a bug with the
     /// details (and preferably a backtrace) so the developers can investigate.
     pub fn new(service: &str, user: &str) -> Result<Entry> {
-        debug!("creating entry with service {service}, user {user}, and no target");
+        debug!("creating entry with service {service}, user {user}");
         let entry = build_default_credential(service, user, None)?;
         debug!("created entry {:?}", entry.inner);
         Ok(entry)
@@ -271,15 +271,13 @@ impl Entry {
         user: &str,
         modifiers: &HashMap<&str, &str>,
     ) -> Result<Entry> {
-        debug!(
-            "creating entry with service {service}, user {user}, and target attributes {modifiers:?}"
-        );
+        debug!("creating entry with service {service}, user {user}, and mods {modifiers:?}");
         let entry = build_default_credential(service, user, Some(modifiers))?;
         debug!("created entry {:?}", entry.inner);
         Ok(entry)
     }
 
-    /// Create an entry for the given target, service, and user.
+    /// Create an entry for the given target modifier, service, and user.
     ///
     /// This is just a convenience wrapper for [new_with_modifiers](Entry::new_with_modifiers)
     /// that specifies only the `target` modifier.  It is provided for legacy compatibility.
