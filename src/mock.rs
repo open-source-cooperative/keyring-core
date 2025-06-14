@@ -10,7 +10,7 @@ in this store have no attributes at all.
 To use this credential store instead of the default, make this call during
 application startup _before_ creating any entries:
 ```rust
-keyring_core::set_default_credential_store(keyring_core::mock::default_store());
+keyring_core::set_default_store(keyring_core::mock::default_store());
 ```
 
 You can then create entries as you usually do, and call their usual methods
@@ -25,7 +25,7 @@ will fail with the error you set.  The error will then be cleared, so the next
 call on the mock will operate as usual.  Here's a complete example:
 ```rust
 # use keyring_core::{Entry, Error, mock, mock::MockCredential};
-keyring_core::set_default_credential_store(mock::default_store());
+keyring_core::set_default_store(mock::default_store());
 let entry = Entry::new("service", "user").unwrap();
 let mock: &MockCredential = entry.get_credential().downcast_ref().unwrap();
 mock.set_error(Error::Invalid("mock error".to_string(), "takes precedence".to_string()));
@@ -212,9 +212,10 @@ impl MockCredential {
 }
 
 /// The builder for mock credentials.
-pub struct MockCredentialBuilder {}
+#[derive(Debug)]
+pub struct Store {}
 
-impl CredentialStoreApi for MockCredentialBuilder {
+impl CredentialStoreApi for Store {
     fn vendor(&self) -> String {
         String::from("mock")
     }
@@ -246,11 +247,16 @@ impl CredentialStoreApi for MockCredentialBuilder {
     fn persistence(&self) -> CredentialPersistence {
         CredentialPersistence::EntryOnly
     }
+
+    /// Expose the concrete debug formatter for use via the [CredentialStore] trait
+    fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
 }
 
 /// Return a mock credential builder for use by clients.
 pub fn default_store() -> Box<CredentialStore> {
-    Box::new(MockCredentialBuilder {})
+    Box::new(Store {})
 }
 
 #[cfg(test)]
@@ -259,14 +265,6 @@ mod tests {
     use crate::api::CredentialPersistence;
     use crate::{Entry, Error};
     use std::collections::HashMap;
-
-    #[test]
-    fn test_persistence() {
-        assert!(matches!(
-            default_store().persistence(),
-            CredentialPersistence::EntryOnly
-        ))
-    }
 
     fn entry_new(_service: &str, _user: &str) -> Entry {
         let credential = MockCredential::new().unwrap();
@@ -341,6 +339,13 @@ mod tests {
         test_round_trip("empty user", &entry_new(&name, ""), in_pass);
         test_round_trip("empty service", &entry_new("", &name), in_pass);
         test_round_trip("empty service & user", &entry_new("", ""), in_pass);
+    }
+
+    #[test]
+    fn test_empty_password() {
+        let name = generate_random_string();
+        let in_pass = "";
+        test_round_trip("empty password", &entry_new(&name, &name), in_pass);
     }
 
     #[test]
@@ -470,5 +475,13 @@ mod tests {
             matches!(entry.get_password(), Err(Error::NoEntry)),
             "Able to read a deleted ascii password"
         )
+    }
+
+    #[test]
+    fn test_persistence() {
+        assert!(matches!(
+            default_store().persistence(),
+            CredentialPersistence::EntryOnly
+        ))
     }
 }

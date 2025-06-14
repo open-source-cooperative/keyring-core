@@ -203,11 +203,22 @@ pub trait CredentialStoreApi {
     fn persistence(&self) -> CredentialPersistence {
         CredentialPersistence::UntilDelete
     }
+
+    /// The Debug trait call for the object.
+    ///
+    /// This is used to implement the Debug trait on this type; it
+    /// allows generic code to provide debug printing as provided by
+    /// the underlying concrete object.
+    ///
+    /// We provide a (no-op) default implementation of this method.
+    fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_any(), f)
+    }
 }
 
 impl std::fmt::Debug for CredentialStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.as_any().fmt(f)
+        self.debug_fmt(f)
     }
 }
 

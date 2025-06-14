@@ -196,7 +196,8 @@ static DEFAULT_STORE: std::sync::RwLock<DefaultStore> =
 /// This will block waiting for all other threads currently creating entries
 /// to complete what they are doing. It's really meant to be called
 /// at app startup before you start creating entries.
-pub fn set_default_credential_store(new: Box<CredentialStore>) {
+pub fn set_default_store(new: Box<CredentialStore>) {
+    debug!("setting default credential store to {:?}", new);
     let mut guard = DEFAULT_STORE
         .write()
         .expect("Poisoned RwLock in keyring-rs: please report a bug!");
@@ -299,7 +300,9 @@ impl Entry {
 
     /// Check if this entry is a specifier
     pub fn is_specifier(&self) -> bool {
-        self.inner.is_specifier()
+        let result = self.inner.is_specifier();
+        debug!("is_specifier of {:?} is {}", self.inner, result);
+        result
     }
 
     /// Set the password for this entry.

@@ -16,11 +16,22 @@ pub struct CredId {
     username: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CredKey {
-    pub store: CredMap,
+    pub store_id: String,
+    pub store_creds: CredMap,
     pub id: CredId,
     pub index: usize,
+}
+
+impl std::fmt::Debug for CredKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("CredKey")
+            .field("id", &self.id)
+            .field("index", &self.index)
+            .field("store_id", &self.store_id)
+            .finish()
+    }
 }
 
 impl CredentialApi for CredKey {
@@ -29,7 +40,7 @@ impl CredentialApi for CredKey {
     }
 
     fn set_secret(&self, secret: &[u8]) -> Result<()> {
-        match self.store.get_mut(&self.id) {
+        match self.store_creds.get_mut(&self.id) {
             None => {
                 if self.index != 0 {
                     return Err(Error::NoEntry);
@@ -38,7 +49,7 @@ impl CredentialApi for CredKey {
                     secret: secret.to_vec(),
                     comment: None,
                 };
-                self.store.insert(self.id.clone(), vec![Some(cred)]);
+                self.store_creds.insert(self.id.clone(), vec![Some(cred)]);
                 Ok(())
             }
             Some(mut creds) => match creds.get_mut(self.index) {
@@ -60,7 +71,7 @@ impl CredentialApi for CredKey {
     }
 
     fn get_secret(&self) -> Result<Vec<u8>> {
-        match self.store.get(&self.id) {
+        match self.store_creds.get(&self.id) {
             None => Err(Error::NoEntry),
             Some(creds) => match creds.get(self.index) {
                 None => Err(Error::NoEntry),
@@ -71,7 +82,7 @@ impl CredentialApi for CredKey {
     }
 
     fn get_attributes(&self) -> Result<HashMap<String, String>> {
-        match self.store.get(&self.id) {
+        match self.store_creds.get(&self.id) {
             None => Err(Error::NoEntry),
             Some(creds) => match creds.get(self.index) {
                 None => Err(Error::NoEntry),
@@ -88,7 +99,7 @@ impl CredentialApi for CredKey {
     }
 
     fn delete_credential(&self) -> Result<()> {
-        match self.store.get_mut(&self.id) {
+        match self.store_creds.get_mut(&self.id) {
             None => Err(Error::NoEntry),
             Some(mut creds) => match creds.get(self.index) {
                 None => Err(Error::NoEntry),
@@ -104,6 +115,11 @@ impl CredentialApi for CredKey {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    /// Expose the concrete debug formatter for use via the [Credential] trait
+    fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
 }
 
 #[derive(Debug)]
@@ -112,7 +128,6 @@ pub struct CredValue {
     pub comment: Option<String>,
 }
 
-#[derive(Debug)]
 pub struct Store {
     pub vendor: String,
     pub id: String,
@@ -126,6 +141,16 @@ impl Default for Store {
             id: Uuid::new_v4().to_string(),
             credentials: Arc::new(DashMap::new()),
         }
+    }
+}
+
+impl std::fmt::Debug for Store {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Store")
+            .field("vendor", &self.vendor)
+            .field("id", &self.id)
+            .field("credential_count", &self.credentials.len())
+            .finish()
     }
 }
 
@@ -155,7 +180,8 @@ impl CredentialStoreApi for Store {
             username: user.to_owned(),
         };
         let mut key = CredKey {
-            store: self.credentials.clone(),
+            store_id: self.id.clone(),
+            store_creds: self.credentials.clone(),
             id: id.clone(),
             index: 0,
         };
@@ -185,5 +211,10 @@ impl CredentialStoreApi for Store {
 
     fn persistence(&self) -> CredentialPersistence {
         CredentialPersistence::ProcessOnly
+    }
+
+    /// Expose the concrete debug formatter for use via the [CredentialStore] trait
+    fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }

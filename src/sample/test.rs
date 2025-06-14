@@ -1,28 +1,28 @@
 use std::collections::HashMap;
 use std::sync::Once;
 
-use crate::{CredentialStore, Entry, Error, Result, api::CredentialPersistence};
+use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
 
 static SET_STORE: Once = Once::new();
 
 fn entry_new(service: &str, user: &str) -> Entry {
     SET_STORE.call_once(|| {
-        crate::set_default_credential_store(Box::new(super::store::Store::new()));
+        let _ = env_logger::builder().is_test(true).try_init();
+        crate::set_default_store(Box::new(super::store::Store::new()));
     });
     Entry::new(service, user).unwrap_or_else(|err| {
         panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
     })
 }
 
-fn entry_new_with_modifiers(
-    service: &str,
-    user: &str,
-    mods: &HashMap<&str, &str>,
-) -> Result<Entry> {
+fn entry_new_with_modifiers(service: &str, user: &str, mods: &HashMap<&str, &str>) -> Entry {
     SET_STORE.call_once(|| {
-        crate::set_default_credential_store(Box::new(super::store::Store::new()));
+        let _ = env_logger::builder().is_test(true).try_init();
+        crate::set_default_store(Box::new(super::store::Store::new()));
     });
-    Entry::new_with_modifiers(service, user, mods)
+    Entry::new_with_modifiers(service, user, mods).unwrap_or_else(|err| {
+        panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
+    })
 }
 
 fn generate_random_string() -> String {
@@ -96,6 +96,13 @@ fn test_empty_service_and_user() {
 }
 
 #[test]
+fn test_empty_password() {
+    let name = generate_random_string();
+    let in_pass = "";
+    test_round_trip("empty password", &entry_new(&name, &name), in_pass);
+}
+
+#[test]
 fn test_missing_entry() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
@@ -142,8 +149,7 @@ fn test_update() {
 #[test]
 fn test_credential_and_ambiguous_credential() {
     let name = generate_random_string();
-    let entry1 = entry_new_with_modifiers(&name, &name, &HashMap::from([("create", "entry1")]))
-        .expect("Couldn't create entry1 for ambiguity test");
+    let entry1 = entry_new_with_modifiers(&name, &name, &HashMap::from([("create", "entry1")]));
     assert!(entry1.is_specifier(), "entry1 is not a specifier");
     entry1
         .set_password("password for entry1")
@@ -153,8 +159,7 @@ fn test_credential_and_ambiguous_credential() {
         .downcast_ref()
         .expect("Not a sample store credential");
     assert_eq!(credential1.index, 0, "entry1 index should be 0");
-    let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("create", "entry2")]))
-        .expect("Couldn't create entry2 for ambiguity test");
+    let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("create", "entry2")]));
     assert!(!entry2.is_specifier(), "entry2 is a specifier");
     entry2
         .set_password("password for entry2")
@@ -186,8 +191,7 @@ fn test_credential_and_ambiguous_credential() {
 #[test]
 fn test_get_update_attributes() {
     let name = generate_random_string();
-    let entry = entry_new_with_modifiers(&name, &name, &HashMap::from([("create", "entry")]))
-        .expect("Couldn't create entry for attributes test");
+    let entry = entry_new_with_modifiers(&name, &name, &HashMap::from([("create", "entry")]));
     let expected = HashMap::from([("create-comment".to_string(), "entry".to_string())]);
     let actual = entry.get_attributes().expect("Failed to get attributes");
     assert_eq!(actual, expected, "Attributes don't match expected");
@@ -203,6 +207,205 @@ fn test_get_update_attributes() {
         matches!(entry.get_attributes(), Err(Error::NoEntry)),
         "Read deleted credential in attribute test",
     );
+}
+
+#[test]
+fn test_create_then_move() {
+    let name = generate_random_string();
+    let entry = entry_new(&name, &name);
+    let test = move || {
+        let password = "test ascii password";
+        entry
+            .set_password(password)
+            .expect("Can't set initial ascii password");
+        let stored_password = entry.get_password().expect("Can't get ascii password");
+        assert_eq!(
+            stored_password, password,
+            "Retrieved and set initial ascii passwords don't match"
+        );
+        let password = "このきれいな花は桜です";
+        entry
+            .set_password(password)
+            .expect("Can't set non-ascii password");
+        let stored_password = entry.get_password().expect("Can't get non-ascii password");
+        assert_eq!(
+            stored_password, password,
+            "Retrieved and set non-ascii passwords don't match"
+        );
+        entry
+            .delete_credential()
+            .expect("Can't delete non-ascii password");
+        assert!(
+            matches!(entry.get_password(), Err(Error::NoEntry)),
+            "Able to read a deleted non-ascii password"
+        );
+    };
+    let handle = std::thread::spawn(test);
+    assert!(handle.join().is_ok(), "Couldn't execute on thread")
+}
+
+#[test]
+fn test_simultaneous_create_then_move() {
+    let mut handles = vec![];
+    for i in 0..10 {
+        let name = format!("{}-{}", generate_random_string(), i);
+        let entry = entry_new(&name, &name);
+        let test = move || {
+            entry.set_password(&name).expect("Can't set ascii password");
+            let stored_password = entry.get_password().expect("Can't get ascii password");
+            assert_eq!(
+                stored_password, name,
+                "Retrieved and set ascii passwords don't match"
+            );
+            entry
+                .delete_credential()
+                .expect("Can't delete ascii password");
+            assert!(
+                matches!(entry.get_password(), Err(Error::NoEntry)),
+                "Able to read a deleted ascii password"
+            );
+        };
+        handles.push(std::thread::spawn(test))
+    }
+    for handle in handles {
+        handle.join().expect("Couldn't execute on thread")
+    }
+}
+
+#[test]
+fn test_create_set_then_move() {
+    let name = generate_random_string();
+    let entry = entry_new(&name, &name);
+    let password = "test ascii password";
+    entry
+        .set_password(password)
+        .expect("Can't set ascii password");
+    let test = move || {
+        let stored_password = entry.get_password().expect("Can't get ascii password");
+        assert_eq!(
+            stored_password, password,
+            "Retrieved and set ascii passwords don't match"
+        );
+        entry
+            .delete_credential()
+            .expect("Can't delete ascii password");
+        assert!(
+            matches!(entry.get_password(), Err(Error::NoEntry)),
+            "Able to read a deleted ascii password"
+        );
+    };
+    let handle = std::thread::spawn(test);
+    assert!(handle.join().is_ok(), "Couldn't execute on thread")
+}
+
+#[test]
+fn test_simultaneous_create_set_then_move() {
+    let mut handles = vec![];
+    for i in 0..10 {
+        let name = format!("{}-{}", generate_random_string(), i);
+        let entry = entry_new(&name, &name);
+        entry.set_password(&name).expect("Can't set ascii password");
+        let test = move || {
+            let stored_password = entry.get_password().expect("Can't get ascii password");
+            assert_eq!(
+                stored_password, name,
+                "Retrieved and set ascii passwords don't match"
+            );
+            entry
+                .delete_credential()
+                .expect("Can't delete ascii password");
+            assert!(
+                matches!(entry.get_password(), Err(Error::NoEntry)),
+                "Able to read a deleted ascii password"
+            );
+        };
+        handles.push(std::thread::spawn(test))
+    }
+    for handle in handles {
+        handle.join().expect("Couldn't execute on thread")
+    }
+}
+
+#[test]
+fn test_simultaneous_independent_create_set() {
+    let mut handles = vec![];
+    for i in 0..10 {
+        let name = format!("thread_entry{i}");
+        let test = move || {
+            let entry = entry_new(&name, &name);
+            entry.set_password(&name).expect("Can't set ascii password");
+            let stored_password = entry.get_password().expect("Can't get ascii password");
+            assert_eq!(
+                stored_password, name,
+                "Retrieved and set ascii passwords don't match"
+            );
+            entry
+                .delete_credential()
+                .expect("Can't delete ascii password");
+            assert!(
+                matches!(entry.get_password(), Err(Error::NoEntry)),
+                "Able to read a deleted ascii password"
+            );
+        };
+        handles.push(std::thread::spawn(test))
+    }
+    for handle in handles {
+        handle.join().expect("Couldn't execute on thread")
+    }
+}
+
+#[test]
+fn test_multiple_create_delete_single_thread() {
+    let name = generate_random_string();
+    let entry = entry_new(&name, &name);
+    let repeats = 10;
+    for _i in 0..repeats {
+        entry.set_password(&name).expect("Can't set ascii password");
+        let stored_password = entry.get_password().expect("Can't get ascii password");
+        assert_eq!(
+            stored_password, name,
+            "Retrieved and set ascii passwords don't match"
+        );
+        entry
+            .delete_credential()
+            .expect("Can't delete ascii password");
+        assert!(
+            matches!(entry.get_password(), Err(Error::NoEntry)),
+            "Able to read a deleted ascii password"
+        );
+    }
+}
+
+#[test]
+fn test_simultaneous_multiple_create_delete_single_thread() {
+    let mut handles = vec![];
+    for t in 0..10 {
+        let name = generate_random_string();
+        let test = move || {
+            let name = format!("{name}-{t}");
+            let entry = entry_new(&name, &name);
+            let repeats = 10;
+            for _i in 0..repeats {
+                entry.set_password(&name).expect("Can't set ascii password");
+                let stored_password = entry.get_password().expect("Can't get ascii password");
+                assert_eq!(
+                    stored_password, name,
+                    "Retrieved and set ascii passwords don't match"
+                );
+                entry
+                    .delete_credential()
+                    .expect("Can't delete ascii password");
+                assert!(
+                    matches!(entry.get_password(), Err(Error::NoEntry)),
+                    "Able to read a deleted ascii password"
+                );
+            }
+        };
+        handles.push(std::thread::spawn(test))
+    }
+    for handle in handles {
+        handle.join().expect("Couldn't execute on thread")
+    }
 }
 
 #[test]

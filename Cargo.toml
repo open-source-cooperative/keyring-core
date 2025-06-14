@@ -19,7 +19,7 @@ sample = ["dep:uuid", "dep:chrono", "dep:dashmap"]
 chrono = { version = "0.4.41", optional = true }
 dashmap = { version = "6.1.0", optional = true }
 log = "0.4"
-uuid = { version = "1.17.0", features = ["v4"], optional = true}
+uuid = { version = "1.17.0", features = ["v4"], optional = true }
 
 [dev-dependencies]
 doc-comment = "0.3"
@@ -27,4 +27,4 @@ env_logger = "0.11.5"
 fastrand = "2"
 
 [package.metadata.docs.rs]
-features = ["mock", "sample"]
+features = ["sample"]
