@@ -1,7 +1,7 @@
-use common::{generate_random_bytes_of_len, generate_random_string, init_logger};
-use keyring::{Entry, Error};
-
 mod common;
+
+use common::{generate_random_bytes_of_len, generate_random_string, init_logger};
+use keyring_core::{Entry, Error};
 
 #[test]
 fn test_missing_entry() {

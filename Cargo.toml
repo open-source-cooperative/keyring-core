@@ -1,63 +1,30 @@
 [package]
-authors = ["Walther Chen <walther.chen@gmail.com>", "Daniel Brotsky <dev@brotsky.com>"]
-description = "Cross-platform library for managing passwords/credentials"
-homepage = "https://github.com/hwchen/keyring-rs"
-keywords = ["password", "credential", "keychain", "secret-service", "cross-platform"]
+authors = ["Daniel Brotsky <dev@brotsky.com>"]
+description = "Cross-platform library for managing passwords/secrets"
+homepage = "https://github.com/open-source-cooperative/keyring-core"
+keywords = ["password", "secret", "credential", "keychain", "cross-platform"]
 license = "MIT OR Apache-2.0"
-name = "keyring"
-repository = "https://github.com/hwchen/keyring-rs.git"
-version = "4.0.0-rc.2"
+name = "keyring-core"
+repository = "https://github.com/open-source-cooperative/keyring-core.git"
+version = "1.0.0-alpha.1"
 rust-version = "1.85"
 edition = "2024"
 exclude = [".github/"]
 readme = "README.md"
 
 [features]
-default = ["apple-native", "secret-service", "windows-native"]
-
-## Use the built-in Keychain Services on macOS and iOS
-apple-native = ["dep:security-framework"]
-## Use the secret-service on *nix.
-secret-service = ["dep:dbus-secret-service"]
-## Use the built-in credential store on Windows
-windows-native = ["dep:windows-sys", "dep:byteorder"]
-
-## Link any external required libraries statically
-vendored = ["dbus-secret-service?/vendored"]
+sample = ["dep:uuid", "dep:chrono", "dep:dashmap"]
 
 [dependencies]
+chrono = { version = "0.4.41", optional = true }
+dashmap = { version = "6.1.0", optional = true }
 log = "0.4"
-
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-security-framework = { version = "3", optional = true }
-
-[target.'cfg(any(target_os = "linux",target_os = "freebsd", target_os = "openbsd"))'.dependencies]
-dbus-secret-service = { version = "4", features = ["crypto-rust"], optional = true }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-byteorder = { version = "1", optional = true }
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Credentials"], optional = true }
-zeroize = "1.8.1"
-
-[[example]]
-name = "iostest"
-path = "examples/ios.rs"
-crate-type = ["staticlib"]
-
-[[example]]
-name = "keyring-cli"
-path = "examples/cli.rs"
+uuid = { version = "1.17.0", features = ["v4"], optional = true}
 
 [dev-dependencies]
-base64 = "0.22"
-clap = { version = "4", features = ["derive", "wrap_help"] }
 doc-comment = "0.3"
 env_logger = "0.11.5"
 fastrand = "2"
-rpassword = "7"
-rprompt = "2"
-whoami = "1.5"
 
 [package.metadata.docs.rs]
-default-target = "x86_64-unknown-linux-gnu"
-targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "aarch64-apple-ios", "x86_64-pc-windows-msvc"]
+features = ["mock", "sample"]

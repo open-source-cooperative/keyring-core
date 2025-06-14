@@ -56,7 +56,7 @@ pub enum Error {
     Ambiguous(Vec<Box<Credential>>),
     /// This indicates that there was no default credential builder to use;
     /// the client must set one before creating entries.
-    NoDefaultCredentialBuilder,
+    NoDefaultStore,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -84,7 +84,7 @@ impl std::fmt::Display for Error {
                     items.len(),
                 )
             }
-            Error::NoDefaultCredentialBuilder => {
+            Error::NoDefaultStore => {
                 write!(
                     f,
                     "No default credential builder is available; set one before creating entries"

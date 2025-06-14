@@ -10,7 +10,7 @@ in this store have no attributes at all.
 To use this credential store instead of the default, make this call during
 application startup _before_ creating any entries:
 ```rust
-keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+keyring_core::set_default_credential_store(keyring_core::mock::default_store());
 ```
 
 You can then create entries as you usually do, and call their usual methods
@@ -24,8 +24,8 @@ with the appropriate error.  The next entry method called on the credential
 will fail with the error you set.  The error will then be cleared, so the next
 call on the mock will operate as usual.  Here's a complete example:
 ```rust
-# use keyring::{Entry, Error, mock, mock::MockCredential};
-# keyring::set_default_credential_builder(mock::default_credential_builder());
+# use keyring_core::{Entry, Error, mock, mock::MockCredential};
+keyring_core::set_default_credential_store(mock::default_store());
 let entry = Entry::new("service", "user").unwrap();
 let mock: &MockCredential = entry.get_credential().downcast_ref().unwrap();
 mock.set_error(Error::Invalid("mock error".to_string(), "takes precedence".to_string()));
@@ -34,10 +34,11 @@ entry.set_password("test").expect("error has been cleared");
 ```
  */
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
-use super::credential::{
-    Credential, CredentialApi, CredentialBuilder, CredentialBuilderApi, CredentialPersistence,
+use super::api::{
+    Credential, CredentialApi, CredentialPersistence, CredentialStore, CredentialStoreApi,
 };
 use super::error::{Error, Result, decode_password};
 
@@ -72,6 +73,11 @@ pub struct MockData {
 }
 
 impl CredentialApi for MockCredential {
+    /// Every mock credential is a specifier
+    fn is_specifier(&self) -> bool {
+        true
+    }
+
     /// Set a password on a mock credential.
     ///
     /// If there is an error in the mock, it will be returned
@@ -186,7 +192,7 @@ impl MockCredential {
     ///
     /// Since mocks have no persistence between sessions,
     /// new mocks always have no password.
-    fn new_with_target(_target: Option<&str>, _service: &str, _user: &str) -> Result<Self> {
+    fn new() -> Result<Self> {
         Ok(Default::default())
     }
 
@@ -208,13 +214,26 @@ impl MockCredential {
 /// The builder for mock credentials.
 pub struct MockCredentialBuilder {}
 
-impl CredentialBuilderApi for MockCredentialBuilder {
-    /// Build a mock credential for the given target, service, and user.
+impl CredentialStoreApi for MockCredentialBuilder {
+    fn vendor(&self) -> String {
+        String::from("mock")
+    }
+
+    fn id(&self) -> String {
+        String::from("mock")
+    }
+
+    /// Build a mock credential for the service and user. Any attributes are ignored.
     ///
-    /// Since mocks don't persist between sessions,  all mocks
+    /// Since mocks don't persist beyond the life of their entry,  all mocks
     /// start off without passwords.
-    fn build(&self, target: Option<&str>, service: &str, user: &str) -> Result<Box<Credential>> {
-        let credential = MockCredential::new_with_target(target, service, user)?;
+    fn build(
+        &self,
+        _service: &str,
+        _user: &str,
+        _: Option<&HashMap<&str, &str>>,
+    ) -> Result<Box<Credential>> {
+        let credential = MockCredential::new()?;
         Ok(Box::new(credential))
     }
 
@@ -230,62 +249,182 @@ impl CredentialBuilderApi for MockCredentialBuilder {
 }
 
 /// Return a mock credential builder for use by clients.
-pub fn default_credential_builder() -> Box<CredentialBuilder> {
+pub fn default_store() -> Box<CredentialStore> {
     Box::new(MockCredentialBuilder {})
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{MockCredential, default_credential_builder};
-    use crate::credential::CredentialPersistence;
-    use crate::{Entry, Error, tests::generate_random_string};
+    use super::{MockCredential, default_store};
+    use crate::api::CredentialPersistence;
+    use crate::{Entry, Error};
+    use std::collections::HashMap;
 
     #[test]
     fn test_persistence() {
         assert!(matches!(
-            default_credential_builder().persistence(),
+            default_store().persistence(),
             CredentialPersistence::EntryOnly
         ))
     }
 
-    fn entry_new(service: &str, user: &str) -> Entry {
-        let credential = MockCredential::new_with_target(None, service, user).unwrap();
+    fn entry_new(_service: &str, _user: &str) -> Entry {
+        let credential = MockCredential::new().unwrap();
         Entry::new_with_credential(Box::new(credential))
+    }
+
+    fn generate_random_string() -> String {
+        use fastrand;
+        use std::iter::repeat_with;
+        repeat_with(fastrand::alphanumeric).take(30).collect()
+    }
+
+    fn generate_random_bytes() -> Vec<u8> {
+        use fastrand;
+        use std::iter::repeat_with;
+        repeat_with(|| fastrand::u8(..)).take(24).collect()
+    }
+
+    // A round-trip password test that doesn't delete the credential afterward
+    fn test_round_trip_no_delete(case: &str, entry: &Entry, in_pass: &str) {
+        entry
+            .set_password(in_pass)
+            .unwrap_or_else(|err| panic!("Can't set password for {case}: {err:?}"));
+        let out_pass = entry
+            .get_password()
+            .unwrap_or_else(|err| panic!("Can't get password for {case}: {err:?}"));
+        assert_eq!(
+            in_pass, out_pass,
+            "Passwords don't match for {case}: set='{in_pass}', get='{out_pass}'",
+        )
+    }
+
+    // A round-trip password test that does delete the credential afterward
+    fn test_round_trip(case: &str, entry: &Entry, in_pass: &str) {
+        test_round_trip_no_delete(case, entry, in_pass);
+        entry
+            .delete_credential()
+            .unwrap_or_else(|err| panic!("Can't delete password for {case}: {err:?}"));
+        let password = entry.get_password();
+        assert!(
+            matches!(password, Err(Error::NoEntry)),
+            "Read deleted password for {case}",
+        );
+    }
+
+    // A round-trip secret test that does delete the credential afterward
+    pub fn test_round_trip_secret(case: &str, entry: &Entry, in_secret: &[u8]) {
+        entry
+            .set_secret(in_secret)
+            .unwrap_or_else(|err| panic!("Can't set secret for {case}: {err:?}"));
+        let out_secret = entry
+            .get_secret()
+            .unwrap_or_else(|err| panic!("Can't get secret for {case}: {err:?}"));
+        assert_eq!(
+            in_secret, &out_secret,
+            "Secrets don't match for {case}: set='{in_secret:?}', get='{out_secret:?}'",
+        );
+        entry
+            .delete_credential()
+            .unwrap_or_else(|err| panic!("Can't delete credential for {case}: {err:?}"));
+        let secret = entry.get_secret();
+        assert!(
+            matches!(secret, Err(Error::NoEntry)),
+            "Read deleted password for {case}",
+        );
+    }
+
+    #[test]
+    fn test_empty_service_and_user() {
+        let name = generate_random_string();
+        let in_pass = "doesn't matter";
+        test_round_trip("empty user", &entry_new(&name, ""), in_pass);
+        test_round_trip("empty service", &entry_new("", &name), in_pass);
+        test_round_trip("empty service & user", &entry_new("", ""), in_pass);
     }
 
     #[test]
     fn test_missing_entry() {
-        crate::tests::test_missing_entry(entry_new);
-    }
-
-    #[test]
-    fn test_empty_password() {
-        crate::tests::test_empty_password(entry_new);
+        let name = generate_random_string();
+        let entry = entry_new(&name, &name);
+        assert!(
+            matches!(entry.get_password(), Err(Error::NoEntry)),
+            "Missing entry has password"
+        )
     }
 
     #[test]
     fn test_round_trip_ascii_password() {
-        crate::tests::test_round_trip_ascii_password(entry_new);
+        let name = generate_random_string();
+        let entry = entry_new(&name, &name);
+        test_round_trip("ascii password", &entry, "test ascii password");
     }
 
     #[test]
     fn test_round_trip_non_ascii_password() {
-        crate::tests::test_round_trip_non_ascii_password(entry_new);
+        let name = generate_random_string();
+        let entry = entry_new(&name, &name);
+        test_round_trip("non-ascii password", &entry, "このきれいな花は桜です");
     }
 
     #[test]
     fn test_round_trip_random_secret() {
-        crate::tests::test_round_trip_random_secret(entry_new);
+        let name = generate_random_string();
+        let entry = entry_new(&name, &name);
+        let secret = generate_random_bytes();
+        test_round_trip_secret("non-ascii password", &entry, secret.as_slice());
     }
 
     #[test]
     fn test_update() {
-        crate::tests::test_update(entry_new);
+        let name = generate_random_string();
+        let entry = entry_new(&name, &name);
+        test_round_trip_no_delete("initial ascii password", &entry, "test ascii password");
+        test_round_trip(
+            "updated non-ascii password",
+            &entry,
+            "このきれいな花は桜です",
+        );
     }
 
     #[test]
     fn test_get_update_attributes() {
-        crate::tests::test_noop_get_update_attributes(entry_new);
+        let name = generate_random_string();
+        let entry = entry_new(&name, &name);
+        assert!(
+            matches!(entry.get_attributes(), Err(Error::NoEntry)),
+            "Read missing credential in attribute test",
+        );
+        let map = HashMap::from([("test attribute name", "test attribute value")]);
+        assert!(
+            matches!(entry.update_attributes(&map), Err(Error::NoEntry)),
+            "Updated missing credential in attribute test",
+        );
+        // create the credential and test again
+        entry
+            .set_password("test password for attributes")
+            .unwrap_or_else(|err| panic!("Can't set password for attribute test: {err:?}"));
+        match entry.get_attributes() {
+            Err(err) => panic!("Couldn't get attributes: {err:?}"),
+            Ok(attrs) if attrs.is_empty() => {}
+            Ok(attrs) => panic!("Unexpected attributes: {attrs:?}"),
+        }
+        assert!(
+            matches!(entry.update_attributes(&map), Ok(())),
+            "Couldn't update attributes in attribute test",
+        );
+        match entry.get_attributes() {
+            Err(err) => panic!("Couldn't get attributes after update: {err:?}"),
+            Ok(attrs) if attrs.is_empty() => {}
+            Ok(attrs) => panic!("Unexpected attributes after update: {attrs:?}"),
+        }
+        entry
+            .delete_credential()
+            .unwrap_or_else(|err| panic!("Can't delete credential for attribute test: {err:?}"));
+        assert!(
+            matches!(entry.get_attributes(), Err(Error::NoEntry)),
+            "Read deleted credential in attribute test",
+        );
     }
 
     #[test]

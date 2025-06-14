@@ -1,5 +1,5 @@
 use common::{generate_random_string, init_logger};
-use keyring::{Entry, Error};
+use keyring_core::{Entry, Error};
 
 mod common;
 
