@@ -5,19 +5,17 @@
 [![crates.io](https://img.shields.io/crates/v/keyring-core.svg?style=flat-square)](https://crates.io/crates/keyring)
 [![docs.rs](https://docs.rs/keyring-core/badge.svg)](https://docs.rs/keyring-core)
 
-`keyring-core` is a cross-platform library to manage storage and retrieval of passwords (and other secrets) in
-platform-specific credential stores. It provides the API used in the [keyring crate](https://crates.io/crates/keyring).
-If you are a developer looking to integrate secret-management facilities into your app, this is the crate you should use
-as a dependency, along with any compatible credential-store crates, such
-as [dbus-secret-service-keyring](https://crates.io/crates/dbus-secret-service-keyring])
-or [apple-native-keyring](https://crates.io/crates/apple-native-keyring).
+`keyring-core` is a cross-platform library to manage storage and retrieval of passwords (and other secrets) in secure
+credential stores. It provides the API used by the [keyring CLI](https://crates.io/crates/keyring). If you are a
+developer looking to integrate secret-management facilities into your app, this is the crate you should use as a
+dependency, along with one or more keyring-compatible credential-stores.
 
 ## Usage
 
 To use this crate in your project, include it in your `Cargo.toml`:
 
 ```toml
-keyring-core = "1"
+keyring-core = "0.1"
 ```
 
 In your client code, set your default credential store using the `set_default_store` function. Then you can
@@ -45,19 +43,18 @@ fn main() -> Result<()> {
 
 ## Errors
 
-Creating and operating on entries can yield a `keyring::Error` which provides both a platform-independent code that
-classifies the error and, where relevant, underlying credential store errors or more information about what went wrong.
-
-## Client Testing
-
-This crate comes with a mock credential store that can be used by clients who want to test their platform-independent
-logic as opposed to their credential-store-specific logic. The mock store allows mocking errors as well as successes.
-See the [developer docs](https://docs.rs/keyring-core/) for details.
+Creating and operating on entries can yield an `Error` enum that
+classifies the error and, where relevant, includes underlying credential store errors or more information about what
+went wrong.
 
 ## Credential Stores
 
-This crate allows for pluggable credential stores by providing traits that credential stores can implement. See
-the [developer docs](https://docs.rs/keyring/) for details.
+This crate comes with two cross-platform credential stores that can be used by clients who want to test their
+credential-store independent
+logic. Neither of these stores are either secure or robust, so they should not be used in production.
+
+The first of these is a mock store with no persistence which allows mocking errors as well as successes. The other is a
+sample store with file-based persistence. See the [developer docs](https://docs.rs/keyring-core/) for details.
 
 ## License
 
@@ -70,49 +67,7 @@ at your option.
 
 ## Contributors
 
-Thanks to the following for helping make this library better, whether through contributing code, discussion, or bug
-reports!
-
-- @Alexei-Barnes
-- @benwr
-- @bhkaminski
-- @Brooooooklyn
-- @brotskydotcom
-- @complexspaces
-- @connor4312
-- @dario23
-- @dten
-- @gondolyr
-- @hwchen
-- @jankatins
-- @jasikpark
-- @jkhsjdhjs
-- @jonathanmorley
-- @jyuch
-- @klemensn
-- @landhb
-- @lexxvir
-- @noib3
-- @MaikKlein
-- @Phrohdoh
-- @phlip9
-- @ReactorScram
-- @Rukenshia
-- @russellbanks
-- @ryanavella
-- @samuela
-- @ShaunSHamilton
-- @soywod
-- @stankec
-- @steveatinfincia
-- @Sytten
-- @thewh1teagle
-- @tmpfs
-- @unkcpz
-- @VorpalBlade
-- @zschreur
-
-If you should be on this list, but don't find yourself, please contact @brotskydotcom.
+The full list of library contributors may be found in the [Contributors file](Contributors.md).
 
 ### Contribution
 
