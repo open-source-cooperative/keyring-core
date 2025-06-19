@@ -1,175 +1,136 @@
 use dashmap::DashMap;
 use std::any::Any;
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::fmt::Debug;
+use std::sync::{Arc, RwLock, Weak};
 
-use crate::api::{CredentialApi, CredentialPersistence, CredentialStoreApi};
-use crate::{Credential, Error, Result};
+use serde::{Deserialize, Serialize};
 
-type CredMap = Arc<DashMap<CredId, Vec<Option<CredValue>>>>;
+use super::credential::{CredId, CredKey};
+use crate::{
+    Credential,
+    Error::{Invalid, PlatformFailure},
+    Result,
+    api::{CredentialPersistence, CredentialStoreApi},
+};
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct CredId {
-    service: String,
-    username: String,
-}
-
-#[derive(Clone)]
-pub struct CredKey {
-    pub store_id: String,
-    pub store_creds: CredMap,
-    pub id: CredId,
-    pub index: usize,
-}
-
-impl std::fmt::Debug for CredKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("CredKey")
-            .field("id", &self.id)
-            .field("index", &self.index)
-            .field("store_id", &self.store_id)
-            .finish()
-    }
-}
-
-impl CredentialApi for CredKey {
-    fn is_specifier(&self) -> bool {
-        self.index == 0
-    }
-
-    fn set_secret(&self, secret: &[u8]) -> Result<()> {
-        match self.store_creds.get_mut(&self.id) {
-            None => {
-                if self.index != 0 {
-                    return Err(Error::NoEntry);
-                }
-                let cred = CredValue {
-                    secret: secret.to_vec(),
-                    comment: None,
-                };
-                self.store_creds.insert(self.id.clone(), vec![Some(cred)]);
-                Ok(())
-            }
-            Some(mut creds) => match creds.get_mut(self.index) {
-                None => Err(Error::NoEntry),
-                Some(None) if self.index == 0 => {
-                    (*creds)[0] = Some(CredValue {
-                        secret: secret.to_vec(),
-                        comment: None,
-                    });
-                    Ok(())
-                }
-                Some(None) => Err(Error::NoEntry),
-                Some(Some(cred)) => {
-                    cred.secret = secret.to_vec();
-                    Ok(())
-                }
-            },
-        }
-    }
-
-    fn get_secret(&self) -> Result<Vec<u8>> {
-        match self.store_creds.get(&self.id) {
-            None => Err(Error::NoEntry),
-            Some(creds) => match creds.get(self.index) {
-                None => Err(Error::NoEntry),
-                Some(None) => Err(Error::NoEntry),
-                Some(Some(cred)) => Ok(cred.secret.clone()),
-            },
-        }
-    }
-
-    fn get_attributes(&self) -> Result<HashMap<String, String>> {
-        match self.store_creds.get(&self.id) {
-            None => Err(Error::NoEntry),
-            Some(creds) => match creds.get(self.index) {
-                None => Err(Error::NoEntry),
-                Some(None) => Err(Error::NoEntry),
-                Some(Some(cred)) => match &cred.comment {
-                    None => Ok(HashMap::new()),
-                    Some(comment) => Ok(HashMap::from([(
-                        "create-comment".to_string(),
-                        comment.clone(),
-                    )])),
-                },
-            },
-        }
-    }
-
-    fn delete_credential(&self) -> Result<()> {
-        match self.store_creds.get_mut(&self.id) {
-            None => Err(Error::NoEntry),
-            Some(mut creds) => match creds.get(self.index) {
-                None => Err(Error::NoEntry),
-                Some(None) => Err(Error::NoEntry),
-                Some(Some(_)) => {
-                    (*creds)[self.index] = None;
-                    Ok(())
-                }
-            },
-        }
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    /// Expose the concrete debug formatter for use via the [Credential] trait
-    fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CredValue {
     pub secret: Vec<u8>,
     pub comment: Option<String>,
 }
 
+// A map from <service, user> pairs to matching credentials
+pub type CredMap = DashMap<CredId, Vec<Option<CredValue>>>;
+
+// The list of extant credential stores.
+//
+// Because credentials are created with a reference to their store,
+// and stores can't keep references to themselves to hand out,
+// all created stores keep their index position in this static
+// and gets their self-reference from there.
+//
+// These references are intentionally weak, so that stores can
+// in fact be dropped (by dropping the store itself and all
+// credentials from that store).
+static STORES: RwLock<Vec<Weak<Store>>> = RwLock::new(Vec::new());
+
+// A credential store.
+//
+// The credential data is kept in the CredMap.
 pub struct Store {
-    pub vendor: String,
-    pub id: String,
-    pub credentials: CredMap,
+    pub index: usize,            // index into the STORES vector
+    pub creds: CredMap,          // the credential store data
+    pub backing: Option<String>, // the backing file, if any
 }
 
-impl Default for Store {
-    fn default() -> Self {
-        let millis = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        Store {
-            vendor: "keyring::sample".to_string(),
-            id: format!("sample-{}", millis % 100000),
-            credentials: Arc::new(DashMap::new()),
-        }
-    }
-}
-
-impl std::fmt::Debug for Store {
+impl Debug for Store {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Store")
-            .field("vendor", &self.vendor)
-            .field("id", &self.id)
-            .field("credential_count", &self.credentials.len())
+            .field("index", &self.index)
+            .field("backing", &self.backing)
+            .field("cred-count", &self.creds.len())
             .finish()
     }
 }
 
+impl Drop for Store {
+    fn drop(&mut self) {
+        self.save().unwrap_or(())
+    }
+}
+
 impl Store {
-    pub fn new() -> Self {
-        Default::default()
+    // Create a new, empty store with no backing file.
+    pub fn new() -> Arc<Self> {
+        Self::new_internal(DashMap::new(), None)
+    }
+
+    // Create a new store from a backing file.
+    //
+    // The backing file must be a valid path, but it need not exist,
+    // in which case the store starts off empty. If the file does
+    // exist, the initial contents of the store are loaded from it.
+    pub fn new_with_backing(path: &str) -> Result<Arc<Self>> {
+        Ok(Self::new_internal(
+            Self::load_credentials(path)?,
+            Some(String::from(path)),
+        ))
+    }
+
+    // Save this store to its backing file.
+    //
+    // This is a no-op if there is no backing file.
+    pub fn save(&self) -> Result<()> {
+        if self.backing.is_none() {
+            return Ok(());
+        };
+        let content = ron::ser::to_string_pretty(&self.creds, ron::ser::PrettyConfig::new())
+            .map_err(|e| PlatformFailure(Box::from(e)))?;
+        std::fs::write(self.backing.as_ref().unwrap(), content)
+            .map_err(|e| PlatformFailure(Box::from(e)))?;
+        Ok(())
+    }
+
+    // Create a store with the given credentials and backing file.
+    //
+    // This inserts the store into the list of all stores, and saves
+    // the index of its reference in the store itself.
+    pub fn new_internal(creds: CredMap, backing: Option<String>) -> Arc<Self> {
+        let mut guard = STORES
+            .write()
+            .expect("Poisoned RwLock creating a store: report a bug!");
+        let store = Arc::new(Store {
+            index: guard.len(),
+            creds,
+            backing,
+        });
+        guard.push(Arc::downgrade(&store));
+        store
+    }
+
+    // Loads store content from a backing file.
+    //
+    // If the backing file does not exist, the returned store is empty.
+    pub fn load_credentials(path: &str) -> Result<CredMap> {
+        match std::fs::exists(path) {
+            Ok(true) => match std::fs::read_to_string(path) {
+                Ok(s) => Ok(ron::de::from_str(&s).map_err(|e| PlatformFailure(Box::from(e)))?),
+                Err(e) => Err(PlatformFailure(Box::from(e))),
+            },
+            Ok(false) => Ok(DashMap::new()),
+            Err(e) => Err(Invalid("Invalid path".to_string(), e.to_string())),
+        }
     }
 }
 
 impl CredentialStoreApi for Store {
     fn vendor(&self) -> String {
-        self.vendor.clone()
+        String::from("keyring-core-sample")
     }
 
     fn id(&self) -> String {
-        self.id.clone()
+        format!("sample-store-{}", self.index)
     }
 
     fn build(
@@ -182,11 +143,18 @@ impl CredentialStoreApi for Store {
             service: service.to_owned(),
             username: user.to_owned(),
         };
+        let guard = STORES
+            .read()
+            .expect("Poisoned RwLock at credential creation: report a bug!");
+        let store = guard
+            .get(self.index)
+            .expect("Missing weak pointer at credential creation: report a bug!")
+            .upgrade()
+            .expect("Missing store at credential creation: report a bug!");
         let mut key = CredKey {
-            store_id: self.id.clone(),
-            store_creds: self.credentials.clone(),
+            store,
             id: id.clone(),
-            index: 0,
+            cred_index: 0,
         };
         if let Some(mods) = mods {
             if let Some(create) = mods.get("create") {
@@ -194,13 +162,13 @@ impl CredentialStoreApi for Store {
                     secret: Vec::new(),
                     comment: Some(create.to_string()),
                 };
-                match self.credentials.get_mut(&id) {
+                match self.creds.get_mut(&id) {
                     None => {
-                        self.credentials.insert(id, vec![Some(value)]);
+                        self.creds.insert(id, vec![Some(value)]);
                     }
                     Some(mut creds) => {
                         (*creds).push(Some(value));
-                        key.index = creds.len() - 1;
+                        key.cred_index = creds.len() - 1;
                     }
                 };
             }

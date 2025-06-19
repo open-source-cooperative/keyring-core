@@ -56,6 +56,20 @@ logic. Neither of these stores are either secure or robust, so they should not b
 The first of these is a mock store with no persistence which allows mocking errors as well as successes. The other is a
 sample store with file-based persistence. See the [developer docs](https://docs.rs/keyring-core/) for details.
 
+## API changes
+
+There are a few changes in the API since its last inclusion in
+the [keyring crate v3](https://crates.io/crates/keyring/3.6.2):
+
+* The older API expected credential stores to be singletons, so that each store module's `default_credential_store`
+  function could be called multiple times and relied on to return the same store. In the current API, credential stores
+  can be objects with their own lifecycle, so they are given to `set_default_credential_store` via an `Arc` rather than
+  a `Box`.
+* The new API is a lot more crisp about whether an entry has been created directly or has been created by wrapping a
+  credential, and what the difference between those two scenarios are. As a result, the Ambiguous error returns a list
+  of entries rather than a list of credentials, and it makes clear which of those entries (if any) is the one that holds
+  the credential that would have been created by the API on a `set_password` call.
+
 ## License
 
 Licensed under either of

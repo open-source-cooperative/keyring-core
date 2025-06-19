@@ -165,6 +165,7 @@ See the documentation of each credential store for details.
 
 use log::debug;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub mod api;
 pub mod error;
@@ -179,7 +180,7 @@ pub use error::{Error, Result};
 
 #[derive(Default, Debug)]
 struct DefaultStore {
-    inner: Option<Box<CredentialStore>>,
+    inner: Option<Arc<CredentialStore>>,
 }
 
 static DEFAULT_STORE: std::sync::RwLock<DefaultStore> =
@@ -196,11 +197,11 @@ static DEFAULT_STORE: std::sync::RwLock<DefaultStore> =
 /// This will block waiting for all other threads currently creating entries
 /// to complete what they are doing. It's really meant to be called
 /// at app startup before you start creating entries.
-pub fn set_default_store(new: Box<CredentialStore>) {
+pub fn set_default_store(new: Arc<CredentialStore>) {
     debug!("setting default credential store to {:?}", new);
     let mut guard = DEFAULT_STORE
         .write()
-        .expect("Poisoned RwLock in keyring-rs: please report a bug!");
+        .expect("Poisoned RwLock in keyring_core::set_default_store: please report a bug!");
     guard.inner = Some(new);
 }
 

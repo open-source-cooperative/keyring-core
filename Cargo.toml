@@ -13,11 +13,13 @@ exclude = [".github/"]
 readme = "README.md"
 
 [features]
-sample = ["dep:dashmap"]
+sample = ["dep:dashmap", "dep:ron"]
 
 [dependencies]
-dashmap = { version = "6.1.0", optional = true }
+dashmap = { version = "6.1.0", features = ["serde"], optional = true }
 log = "0.4"
+ron = { version = "0.10.1", optional = true }
+serde = { version = "1.0.219", features = ["derive"] }
 
 [dev-dependencies]
 doc-comment = "0.3"

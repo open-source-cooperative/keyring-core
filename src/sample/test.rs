@@ -1,14 +1,16 @@
 use std::collections::HashMap;
-use std::sync::Once;
+use std::sync::{Arc, LazyLock, Once};
 
 use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
+
+static TEST_STORE: LazyLock<Arc<CredentialStore>> = LazyLock::new(|| super::store::Store::new());
 
 static SET_STORE: Once = Once::new();
 
 fn entry_new(service: &str, user: &str) -> Entry {
     SET_STORE.call_once(|| {
         let _ = env_logger::builder().is_test(true).try_init();
-        crate::set_default_store(Box::new(super::store::Store::new()));
+        crate::set_default_store((*TEST_STORE).clone());
     });
     Entry::new(service, user).unwrap_or_else(|err| {
         panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
@@ -18,7 +20,7 @@ fn entry_new(service: &str, user: &str) -> Entry {
 fn entry_new_with_modifiers(service: &str, user: &str, mods: &HashMap<&str, &str>) -> Entry {
     SET_STORE.call_once(|| {
         let _ = env_logger::builder().is_test(true).try_init();
-        crate::set_default_store(Box::new(super::store::Store::new()));
+        crate::set_default_store((*TEST_STORE).clone());
     });
     Entry::new_with_modifiers(service, user, mods).unwrap_or_else(|err| {
         panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
@@ -154,21 +156,21 @@ fn test_credential_and_ambiguous_credential() {
     entry1
         .set_password("password for entry1")
         .expect("Can't set password for entry1");
-    let credential1: &super::store::CredKey = entry1
+    let credential1: &super::credential::CredKey = entry1
         .get_credential()
         .downcast_ref()
         .expect("Not a sample store credential");
-    assert_eq!(credential1.index, 0, "entry1 index should be 0");
+    assert_eq!(credential1.cred_index, 0, "entry1 index should be 0");
     let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("create", "entry2")]));
     assert!(!entry2.is_specifier(), "entry2 is a specifier");
     entry2
         .set_password("password for entry2")
         .expect("Can't set password for entry2");
-    let credential2: &super::store::CredKey = entry2
+    let credential2: &super::credential::CredKey = entry2
         .get_credential()
         .downcast_ref()
         .expect("Not a sample store credential");
-    assert_eq!(credential2.index, 1, "entry2 index should be 1");
+    assert_eq!(credential2.cred_index, 1, "entry2 index should be 1");
     entry2
         .delete_credential()
         .expect("Couldn't delete entry2 credential");
@@ -410,9 +412,8 @@ fn test_simultaneous_multiple_create_delete_single_thread() {
 
 #[test]
 fn test_persistence() {
-    let store: Box<CredentialStore> = Box::new(super::store::Store::new());
     assert!(matches!(
-        store.persistence(),
+        (*TEST_STORE).persistence(),
         CredentialPersistence::ProcessOnly
     ))
 }

@@ -35,7 +35,7 @@ entry.set_password("test").expect("error has been cleared");
  */
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::api::{
     Credential, CredentialApi, CredentialPersistence, CredentialStore, CredentialStoreApi,
@@ -255,8 +255,8 @@ impl CredentialStoreApi for Store {
 }
 
 /// Return a mock credential builder for use by clients.
-pub fn default_store() -> Box<CredentialStore> {
-    Box::new(Store {})
+pub fn default_store() -> Arc<CredentialStore> {
+    Arc::new(Store {})
 }
 
 #[cfg(test)]
