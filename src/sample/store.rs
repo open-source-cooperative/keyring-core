@@ -1,10 +1,10 @@
 use dashmap::DashMap;
+use log::{debug, error};
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock, Weak};
-
-use serde::{Deserialize, Serialize};
 
 use super::credential::{CredId, CredKey};
 use crate::{
@@ -14,10 +14,12 @@ use crate::{
     api::{CredentialPersistence, CredentialStoreApi},
 };
 
+// The data store for a credential
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CredValue {
     pub secret: Vec<u8>,
     pub comment: Option<String>,
+    pub creation_date: Option<String>,
 }
 
 // A map from <service, user> pairs to matching credentials
@@ -26,11 +28,11 @@ pub type CredMap = DashMap<CredId, Vec<Option<CredValue>>>;
 // The list of extant credential stores.
 //
 // Because credentials are created with a reference to their store,
-// and stores can't keep references to themselves to hand out,
+// and stores shouldn't keep self-references (which would be circular),
 // all created stores keep their index position in this static
-// and gets their self-reference from there.
+// and get their self-reference from there.
 //
-// These references are intentionally weak, so that stores can
+// These static references are intentionally weak, so that stores can
 // in fact be dropped (by dropping the store itself and all
 // credentials from that store).
 static STORES: RwLock<Vec<Weak<Store>>> = RwLock::new(Vec::new());
@@ -56,7 +58,11 @@ impl Debug for Store {
 
 impl Drop for Store {
     fn drop(&mut self) {
-        self.save().unwrap_or(())
+        debug!("Saving store {:?} on drop...", self);
+        match self.save() {
+            Ok(_) => debug!("Save of store {:?} complete.", self),
+            Err(e) => error!("Save of store {:?} failed: {:?}", self, e),
+        }
     }
 }
 
@@ -157,10 +163,11 @@ impl CredentialStoreApi for Store {
             cred_index: 0,
         };
         if let Some(mods) = mods {
-            if let Some(create) = mods.get("create") {
+            if let Some(target) = mods.get("target") {
                 let value = CredValue {
                     secret: Vec::new(),
-                    comment: Some(create.to_string()),
+                    comment: Some(target.to_string()),
+                    creation_date: Some(chrono::Local::now().to_rfc2822()),
                 };
                 match self.creds.get_mut(&id) {
                     None => {
@@ -181,7 +188,11 @@ impl CredentialStoreApi for Store {
     }
 
     fn persistence(&self) -> CredentialPersistence {
-        CredentialPersistence::ProcessOnly
+        if self.backing.is_none() {
+            CredentialPersistence::ProcessOnly
+        } else {
+            CredentialPersistence::UntilDelete
+        }
     }
 
     /// Expose the concrete debug formatter for use via the [CredentialStore] trait

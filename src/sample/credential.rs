@@ -35,6 +35,7 @@ impl CredentialApi for CredKey {
                 let cred = CredValue {
                     secret: secret.to_vec(),
                     comment: None,
+                    creation_date: None,
                 };
                 self.store.creds.insert(self.id.clone(), vec![Some(cred)]);
                 Ok(())
@@ -45,6 +46,7 @@ impl CredentialApi for CredKey {
                     (*creds)[0] = Some(CredValue {
                         secret: secret.to_vec(),
                         comment: None,
+                        creation_date: None,
                     });
                     Ok(())
                 }
@@ -74,13 +76,44 @@ impl CredentialApi for CredKey {
             Some(creds) => match creds.get(self.cred_index) {
                 None => Err(Error::NoEntry),
                 Some(None) => Err(Error::NoEntry),
-                Some(Some(cred)) => match &cred.comment {
-                    None => Ok(HashMap::new()),
-                    Some(comment) => Ok(HashMap::from([(
-                        "create-comment".to_string(),
-                        comment.clone(),
-                    )])),
-                },
+                Some(Some(cred)) => {
+                    let mut attrs = HashMap::new();
+                    if cred.creation_date.is_some() {
+                        attrs.insert(
+                            "creation_date".to_string(),
+                            cred.creation_date.as_ref().unwrap().to_string(),
+                        );
+                    }
+                    if cred.comment.is_some() {
+                        attrs.insert(
+                            "comment".to_string(),
+                            cred.comment.as_ref().unwrap().to_string(),
+                        );
+                    }
+                    Ok(attrs)
+                }
+            },
+        }
+    }
+
+    fn update_attributes(&self, attrs: &HashMap<&str, &str>) -> crate::Result<()> {
+        match self.store.creds.get_mut(&self.id) {
+            None => Err(Error::NoEntry),
+            Some(mut creds) => match creds.get_mut(self.cred_index) {
+                None => Err(Error::NoEntry),
+                Some(None) => Err(Error::NoEntry),
+                Some(Some(cred)) => {
+                    if attrs.contains_key("creation_date") {
+                        return Err(Error::Invalid(
+                            "creation_date".to_string(),
+                            "cannot be updated".to_string(),
+                        ));
+                    }
+                    if let Some(comment) = attrs.get("comment") {
+                        cred.comment = Some(comment.to_string());
+                    }
+                    Ok(())
+                }
             },
         }
     }

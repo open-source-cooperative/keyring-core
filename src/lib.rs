@@ -205,6 +205,18 @@ pub fn set_default_store(new: Arc<CredentialStore>) {
     guard.inner = Some(new);
 }
 
+// Release the default credential builder.
+//
+// This returns the old value for the default credential builder,
+// and forgets what it was.
+pub fn unset_default_store() -> Option<Arc<CredentialStore>> {
+    debug!("unset the default credential store");
+    let mut guard = DEFAULT_STORE
+        .write()
+        .expect("Poisoned RwLock in keyring_core::unset_default_store: please report a bug!");
+    guard.inner.take()
+}
+
 fn build_default_credential(
     service: &str,
     user: &str,
