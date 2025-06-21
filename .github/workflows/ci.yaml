@@ -3,11 +3,11 @@ name: CI
 on: [ workflow_dispatch, push, pull_request ]
 
 jobs:
-  ci_non_nix:
+  ci_stable:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ macos-latest, windows-latest ]
+        os: [ macos-latest, windows-latest, ubuntu-latest ]
 
     steps:
       - name: Fetch head
@@ -29,101 +29,17 @@ jobs:
           key: $test-cache-${{ steps.toolchain.outputs.rustc_hash }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Format check
-        run: cargo fmt --all -- --check
+        run: cargo fmt --check
 
       - name: Clippy check
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --features=sample -- -D warnings
 
       - name: Build and Test
         env:
           RUST_LOG: debug
-        run: cargo test --verbose
+        run: cargo test --features=sample --verbose
 
-      - name: Build with no features
-        run: cargo build --no-default-features
-
-      - name: Build the CLI release
-        run: cargo build --release --example keyring-cli
-
-  ci_nix:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        features: ['', 'vendored']
-
-    steps:
-      - name: Install secret service
-        run: |
-          sudo apt update -y
-          sudo apt install -y gnome-keyring
-
-      - name: Install dbus dynamic lib
-        if: matrix.features != 'vendored'
-        run: |
-          sudo apt update -y
-          sudo apt install -y libdbus-1-dev
-
-      - name: Fetch head
-        uses: actions/checkout@v4
-
-      - name: Install rust stable
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: $test-cache-${{ steps.toolchain.outputs.rustc_hash }}-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Format check
-        if: matrix.features != 'vendored'
-        run: cargo fmt --all -- --check
-
-      - name: Clippy check
-        if: matrix.features != 'vendored'
-        run: cargo clippy -- -D warnings
-
-      - name: Start gnome-keyring
-        # run gnome-keyring with 'foobar' as password for the login keyring
-        # this will create a new login keyring and unlock it
-        # the login password doesn't matter, but the keyring must be unlocked for the tests to work
-        run: gnome-keyring-daemon --components=secrets --daemonize --unlock <<< 'foobar'
-
-      - name: Run tests
-        env:
-          RUST_LOG: debug
-        # run tests single-threaded to avoid dbus race conditions
-        run: cargo test --features=${{ matrix.features }} -- --test-threads=1
-
-      - name: Build with no features
-        run: cargo build --no-default-features
-
-      - name: Build the CLI release
-        run: cargo build --features=${{ matrix.features }} --release --example keyring-cli
-
-  ios_native:
-    runs-on: macos-latest
-
-    steps:
-      - name: Fetch head
-        uses: actions/checkout@v4
-
-      - name: Install rust stable
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          target: aarch64-apple-ios
-
-      - name: Build iOS library
-        run: cargo build --target aarch64-apple-ios --features=apple-native --example=iostest
-
-  msrv_native:
+  ci_msrv:
     runs-on: ubuntu-latest
 
     steps:
@@ -137,4 +53,4 @@ jobs:
           components: clippy
 
       - name: Clippy check
-        run: cargo clippy --features=vendored -- -D warnings
+        run: cargo clippy --features=sample -- -D warnings
