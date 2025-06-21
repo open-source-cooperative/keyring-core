@@ -20,7 +20,7 @@ want to use a "backing file" to store credentials between runs
 don't specify a backing file, this is an in-memory store only,
 and the credentials vanish when your application terminates.
 
-Do not mistake the "backing file" for an update-to-date copy
+Do not think the "backing file" is an up-to-date copy
 of your in-memory credentials! The in-memory credentials are
 only saved to the backing file when explicitly requested
 or when the store is destroyed (that is,
@@ -62,7 +62,7 @@ the created credential to have two additional attributes:
 
 # Attributes
 
-Credentials in the sample store don't have attributes other than those
+Credentials in this store don't have attributes other than those
 described in the section on Ambiguity above.
 
  */

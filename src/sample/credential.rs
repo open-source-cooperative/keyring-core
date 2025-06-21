@@ -8,12 +8,22 @@ use crate::api::CredentialApi;
 
 use super::store::{CredValue, Store};
 
+/// Credentials are specified by a pair of service name and username.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct CredId {
     pub service: String,
     pub username: String,
 }
 
+/// Each of these keys specifies a specific credential in the store.
+///
+/// For each credential ID, the store maintains a list of all the
+/// credentials associated with that ID. The first in that list
+/// (element 0) is the credential _specified_ by the ID, so it's
+/// the one that's auto-created if there are no credentials with
+/// that ID in the store and a password is set. All keys with
+/// indices higher than 0 are wrappers for a specific credential,
+/// but they do not _specify_ a credential.
 #[derive(Debug, Clone)]
 pub struct CredKey {
     pub store: Arc<Store>,
@@ -22,10 +32,15 @@ pub struct CredKey {
 }
 
 impl CredentialApi for CredKey {
+    /// See the API docs.
+    ///
+    /// In this store, only the key with index 0 is a specifier;
+    /// all the others are only wrappers.
     fn is_specifier(&self) -> bool {
         self.cred_index == 0
     }
 
+    /// See the API docs.
     fn set_secret(&self, secret: &[u8]) -> crate::Result<()> {
         match self.store.creds.get_mut(&self.id) {
             None => {
@@ -59,6 +74,7 @@ impl CredentialApi for CredKey {
         }
     }
 
+    /// See the API docs.
     fn get_secret(&self) -> crate::Result<Vec<u8>> {
         match self.store.creds.get(&self.id) {
             None => Err(Error::NoEntry),
@@ -70,6 +86,10 @@ impl CredentialApi for CredKey {
         }
     }
 
+    /// See the API docs.
+    ///
+    /// The only attributes on credentials in this store are `comment`
+    /// and `creation_date`.
     fn get_attributes(&self) -> crate::Result<HashMap<String, String>> {
         match self.store.creds.get(&self.id) {
             None => Err(Error::NoEntry),
@@ -96,6 +116,11 @@ impl CredentialApi for CredKey {
         }
     }
 
+    /// See the API docs.
+    ///
+    /// Only the `comment` attribute can be updated. The `creation_date`
+    /// attribute cannot be modified and specifying it will produce an error.
+    /// All other attributes are ignored.
     fn update_attributes(&self, attrs: &HashMap<&str, &str>) -> crate::Result<()> {
         match self.store.creds.get_mut(&self.id) {
             None => Err(Error::NoEntry),
@@ -118,6 +143,7 @@ impl CredentialApi for CredKey {
         }
     }
 
+    /// See the API docs.
     fn delete_credential(&self) -> crate::Result<()> {
         match self.store.creds.get_mut(&self.id) {
             None => Err(Error::NoEntry),
@@ -132,11 +158,12 @@ impl CredentialApi for CredKey {
         }
     }
 
+    /// See the API docs.
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    /// Expose the concrete debug formatter for use via the [Credential] trait
+    /// See the API docs.
     fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }

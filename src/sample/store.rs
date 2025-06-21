@@ -14,7 +14,7 @@ use crate::{
     api::{CredentialPersistence, CredentialStoreApi},
 };
 
-// The data store for a credential
+/// The stored data for a credential
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CredValue {
     pub secret: Vec<u8>,
@@ -22,27 +22,29 @@ pub struct CredValue {
     pub creation_date: Option<String>,
 }
 
-// A map from <service, user> pairs to matching credentials
+/// A map from <service, user> pairs to matching credentials
 pub type CredMap = DashMap<CredId, Vec<Option<CredValue>>>;
 
-// The list of extant credential stores.
-//
-// Because credentials are created with a reference to their store,
-// and stores shouldn't keep self-references (which would be circular),
-// all created stores keep their index position in this static
-// and get their self-reference from there.
-//
-// These static references are intentionally weak, so that stores can
-// in fact be dropped (by dropping the store itself and all
-// credentials from that store).
+/// The list of extant credential stores.
+///
+/// Because credentials are created with a reference to their store,
+/// and stores shouldn't keep self-references (which would be circular),
+/// all created stores keep their index position in this static
+/// and get their self-reference from there.
+///
+/// These static references are intentionally weak, so that stores can
+/// in fact be dropped (by dropping the store itself and all
+/// credentials from that store).
 static STORES: RwLock<Vec<Weak<Store>>> = RwLock::new(Vec::new());
 
-// A credential store.
-//
-// The credential data is kept in the CredMap.
+/// A credential store.
+///
+/// The credential data is kept in the CredMap.
 pub struct Store {
-    pub index: usize,            // index into the STORES vector
-    pub creds: CredMap,          // the credential store data
+    pub index: usize,
+    /// index into the STORES vector
+    pub creds: CredMap,
+    /// the credential store data
     pub backing: Option<String>, // the backing file, if any
 }
 
@@ -67,16 +69,16 @@ impl Drop for Store {
 }
 
 impl Store {
-    // Create a new, empty store with no backing file.
+    /// Create a new, empty store with no backing file.
     pub fn new() -> Arc<Self> {
         Self::new_internal(DashMap::new(), None)
     }
 
-    // Create a new store from a backing file.
-    //
-    // The backing file must be a valid path, but it need not exist,
-    // in which case the store starts off empty. If the file does
-    // exist, the initial contents of the store are loaded from it.
+    /// Create a new store from a backing file.
+    ///
+    /// The backing file must be a valid path, but it need not exist,
+    /// in which case the store starts off empty. If the file does
+    /// exist, the initial contents of the store are loaded from it.
     pub fn new_with_backing(path: &str) -> Result<Arc<Self>> {
         Ok(Self::new_internal(
             Self::load_credentials(path)?,
@@ -84,9 +86,17 @@ impl Store {
         ))
     }
 
-    // Save this store to its backing file.
-    //
-    // This is a no-op if there is no backing file.
+    /// Save this store to its backing file.
+    ///
+    /// This is a no-op if there is no backing file.
+    ///
+    /// Stores will save themselves to their backing file
+    /// when they go out of scope (i.e., are dropped),
+    /// but this call can be very useful if you specify
+    /// an instance of your store as the keyring-core
+    /// API default store, because the default store
+    /// is kept in a static variable
+    /// and thus is *never* dropped.
     pub fn save(&self) -> Result<()> {
         if self.backing.is_none() {
             return Ok(());
@@ -98,10 +108,15 @@ impl Store {
         Ok(())
     }
 
-    // Create a store with the given credentials and backing file.
-    //
-    // This inserts the store into the list of all stores, and saves
-    // the index of its reference in the store itself.
+    /// Create a store with the given credentials and backing file.
+    ///
+    /// This inserts the store into the list of all stores, and saves
+    /// the index of its reference in the store itself (so it can
+    /// pass the reference on to its credentials).
+    ///
+    /// The reference in the list of all stores is weak, so it
+    /// won't keep the store from being destroyed when it goes
+    /// out of scope.
     pub fn new_internal(creds: CredMap, backing: Option<String>) -> Arc<Self> {
         let mut guard = STORES
             .write()
@@ -111,13 +126,14 @@ impl Store {
             creds,
             backing,
         });
+        debug!("Created new store: {:?}", store);
         guard.push(Arc::downgrade(&store));
         store
     }
 
-    // Loads store content from a backing file.
-    //
-    // If the backing file does not exist, the returned store is empty.
+    /// Loads store content from a backing file.
+    ///
+    /// If the backing file does not exist, the returned store is empty.
     pub fn load_credentials(path: &str) -> Result<CredMap> {
         match std::fs::exists(path) {
             Ok(true) => match std::fs::read_to_string(path) {
@@ -131,14 +147,30 @@ impl Store {
 }
 
 impl CredentialStoreApi for Store {
+    /// See the API docs.
+    ///
+    /// The vendor string for this store is `keyring-core-sample`.
     fn vendor(&self) -> String {
         String::from("keyring-core-sample")
     }
 
+    /// See the API docs.
+    ///
+    /// The store ID is based on its sequence number
+    /// in the list of created stores.
     fn id(&self) -> String {
         format!("sample-store-{}", self.index)
     }
 
+    /// See the API docs.
+    ///
+    /// The only modifier you can specify is `target`; all others are ignored.
+    /// The `target` modifier forces immediate credential creation, and can
+    /// be used with the same service name and username to create ambiguity.
+    ///
+    /// When the target modifier is specified, the created credential gets
+    /// an empty password/secret, a `comment` attribute with the value of the modifier,
+    /// and a `creation_date` attribute with a string for the current local time.
     fn build(
         &self,
         service: &str,
@@ -183,10 +215,15 @@ impl CredentialStoreApi for Store {
         Ok(Box::new(key))
     }
 
+    //// See the API docs.
     fn as_any(&self) -> &dyn Any {
         self
     }
 
+    //// See the API docs.
+    ////
+    //// If this store has a backing file, credential persistence is
+    //// `UntilDelete`. Otherwise, it's `ProcessOnly`.
     fn persistence(&self) -> CredentialPersistence {
         if self.backing.is_none() {
             CredentialPersistence::ProcessOnly
@@ -195,7 +232,7 @@ impl CredentialStoreApi for Store {
         }
     }
 
-    /// Expose the concrete debug formatter for use via the [CredentialStore] trait
+    /// See the API docs.
     fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }

@@ -1,15 +1,13 @@
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Once};
+use std::sync::{Arc, Once};
 
 use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
-
-static TEST_STORE: LazyLock<Arc<CredentialStore>> = LazyLock::new(|| super::store::Store::new());
 
 static SET_STORE: Once = Once::new();
 
 fn usually_goes_in_main() {
     let _ = env_logger::builder().is_test(true).try_init();
-    crate::set_default_store((*TEST_STORE).clone());
+    crate::set_default_store(super::store::Store::new());
 }
 
 fn entry_new(service: &str, user: &str) -> Entry {
@@ -470,7 +468,7 @@ fn test_simultaneous_multiple_create_delete_single_thread() {
 
 #[test]
 fn test_persistence_no_backing() {
-    let store = (*TEST_STORE).clone();
+    let store: Arc<CredentialStore> = super::store::Store::new();
     assert!(matches!(
         store.persistence(),
         CredentialPersistence::ProcessOnly
