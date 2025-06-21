@@ -467,6 +467,15 @@ fn test_simultaneous_multiple_create_delete_single_thread() {
 }
 
 #[test]
+fn test_search() {
+    let store: Arc<CredentialStore> = super::store::Store::new();
+    match store.search(&HashMap::new()) {
+        Err(Error::NotSupportedByStore(vendor)) if vendor == store.vendor() => (),
+        other => panic!("Unexpected value from search: {:?}", other),
+    }
+}
+
+#[test]
 fn test_persistence_no_backing() {
     let store: Arc<CredentialStore> = super::store::Store::new();
     assert!(matches!(

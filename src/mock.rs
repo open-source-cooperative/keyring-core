@@ -217,11 +217,11 @@ pub struct Store {}
 
 impl CredentialStoreApi for Store {
     fn vendor(&self) -> String {
-        String::from("mock")
+        String::from("keyring-core-mock")
     }
 
     fn id(&self) -> String {
-        String::from("mock")
+        String::from("singleton")
     }
 
     /// Build a mock credential for the service and user. Any attributes are ignored.
@@ -475,6 +475,14 @@ mod tests {
             matches!(entry.get_password(), Err(Error::NoEntry)),
             "Able to read a deleted ascii password"
         )
+    }
+
+    #[test]
+    fn test_search() {
+        match default_store().search(&HashMap::new()) {
+            Err(Error::NotSupportedByStore(vendor)) if vendor == default_store().vendor() => (),
+            other => panic!("Unexpected value from search: {:?}", other),
+        }
     }
 
     #[test]
