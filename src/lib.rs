@@ -246,9 +246,12 @@ impl Entry {
     ///
     /// # Errors
     ///
-    /// This function will return an [Invalid][Error::Invalid] error
+    /// Returns an [Invalid][Error::Invalid] error
     /// if the `service` or `user` values are not
     /// acceptable to the default credential store.
+    ///
+    /// Returns a [NoDefaultStore][Error::NoDefaultStore] error
+    /// if the default credential store has not been set.
     ///
     /// # Panics
     ///
@@ -266,13 +269,17 @@ impl Entry {
     ///
     /// The default credential builder is used.
     ///
+    /// See the documentation for each credential store to understand what
+    /// modifiers may be specified for that store.
+    ///
     /// # Errors
     ///
-    /// This function will return an [Invalid][Error::Invalid] error
+    /// Returns an [Invalid][Error::Invalid] error
     /// if the `service`, `user`, or `modifier` pairs are not
     /// acceptable to the default credential store.
-    /// See the documentation for each credential store
-    /// for a list of the modifiers and values accepted at entry creation time.
+    ///
+    /// Returns a [NoDefaultStore][Error::NoDefaultStore] error
+    /// if the default credential store has not been set.
     ///
     /// # Panics
     ///
@@ -307,6 +314,39 @@ impl Entry {
     pub fn new_with_credential(credential: Box<Credential>) -> Entry {
         debug!("create entry wrapping {credential:?}");
         Entry { inner: credential }
+    }
+
+    /// Search for credentials, returning entries that wrap any found.
+    ///
+    /// The default credential store is searched.
+    /// See the documentation of each credential store for how searches are specified.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error
+    /// if `spec` value is not acceptable to the default credential store.
+    ///
+    /// Returns a [NoDefaultStore][Error::NoDefaultStore] error
+    /// if the default credential store has not been set.
+    ///
+    /// # Panics
+    ///
+    /// In the very unlikely event that the internal credential builder's `RwLock`` is poisoned, this function
+    /// will panic. If you encounter this, and especially if you can reproduce it, please report a bug with the
+    /// details (and preferably a backtrace) so the developers can investigate.
+    pub fn search_for_credentials(spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
+        debug!("searching for {spec:?}");
+        let guard = DEFAULT_STORE
+            .read()
+            .expect("Poisoned RwLock in keyring-rs: please report a bug!");
+        match guard.inner.as_ref() {
+            Some(store) => {
+                let creds = store.search(spec)?;
+                let entries: Vec<Entry> = creds.into_iter().map(|c| Entry { inner: c }).collect();
+                Ok(entries)
+            }
+            None => Err(Error::NoDefaultStore),
+        }
     }
 
     /// Check if this entry is a specifier

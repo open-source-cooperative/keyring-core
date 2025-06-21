@@ -13,7 +13,7 @@ in a thread-safe way, a requirement captured in the [CredentialStore] and
 use std::any::Any;
 use std::collections::HashMap;
 
-use super::Result;
+use super::{Error, Result};
 
 /// The API that [credentials](Credential) implement.
 pub trait CredentialApi {
@@ -35,15 +35,15 @@ pub trait CredentialApi {
     /// - If the entry has no associated credential:
     ///   - If the entry is a specifier, an associated credential is created
     ///     and the password is saved in that credential's data.
-    ///   - Otherwise, return a [NoEntry](crate::Error::NoEntry) error.
+    ///   - Otherwise, return a [NoEntry](Error::NoEntry) error.
     /// - If the entry has exactly one associated credential,
     ///   this will update the data saved in that credential.
     /// - If the entry has multiple associated credentials,
-    ///   return an [Ambiguous](super::error::Error::Ambiguous) error.
+    ///   return an [Ambiguous](Error::Ambiguous) error.
     ///
     /// Note: The API allows passwords to be empty. If a store does not support
     /// empty passwords, and one is specified,
-    /// return an [Invalid](crate::Error::Invalid) error.
+    /// return an [Invalid](Error::Invalid) error.
     fn set_secret(&self, secret: &[u8]) -> Result<()>;
 
     /// Retrieve the protected data as a UTF-8 string from the associated credential.
@@ -51,7 +51,7 @@ pub trait CredentialApi {
     /// This method has a default implementation in terms of
     /// [get_secret](CredentialApi::get_secret), which see.
     /// If the data in the credential is not valid UTF-8, the default implementation
-    /// returns a [BadEncoding](crate::Error::BadEncoding) error containing the data.
+    /// returns a [BadEncoding](Error::BadEncoding) error containing the data.
     fn get_password(&self) -> Result<String> {
         let secret = self.get_secret()?;
         super::error::decode_password(secret)
@@ -62,11 +62,11 @@ pub trait CredentialApi {
     /// Expected behavior:
     ///
     /// - If there is no associated credential for this entry,
-    ///   return a [NoEntry](crate::Error::NoEntry) error.
+    ///   return a [NoEntry](Error::NoEntry) error.
     /// - If there is exactly one associated credential for this entry,
     ///   return its protected data.
     /// - If there are multiple associated credentials for this entry,
-    ///   return an [Ambiguous](crate::Error::Ambiguous) error whose data
+    ///   return an [Ambiguous](Error::Ambiguous) error whose data
     ///   is a list of entries each of which wraps one of the credentials.
     fn get_secret(&self) -> Result<Vec<u8>>;
 
@@ -103,10 +103,10 @@ pub trait CredentialApi {
         Ok(())
     }
 
-    /// Delete the underlying credential, if there is one.
+    /// Delete the underlying credential if there is one.
     ///
     /// If the credential doesn't exist, this should return
-    /// a [NoEntry](crate::Error::NoEntry) error.
+    /// a [NoEntry](Error::NoEntry) error.
     fn delete_credential(&self) -> Result<()>;
 
     /// Return the underlying concrete object cast to [Any].
@@ -145,9 +145,10 @@ impl std::fmt::Debug for Credential {
 /// marked as non-exhaustive.
 #[non_exhaustive]
 pub enum CredentialPersistence {
-    /// Credential storage is in the entry, so storage vanishes when entry is dropped.
+    /// Credential storage is in the entry, so storage vanishes when the entry is dropped.
     EntryOnly,
-    /// Credential storage is in process memory, so storage vanishes when process terminates
+    /// Credential storage is in process memory,
+    /// so storage vanishes when the process terminates
     ProcessOnly,
     /// Credential storage is in user-space memory, so storage vanishes when user logs out
     UntilLogout,
@@ -169,7 +170,7 @@ pub trait CredentialStoreApi {
     /// The ID of this credential store instance.
     ///
     /// IDs need not be unique across vendors or processes, but if two
-    /// stores from the same vendor in the same process have the same ID
+    /// stores from the same vendor in the same process have the same ID,
     /// then they are the same store.
     fn id(&self) -> String;
 
@@ -184,6 +185,20 @@ pub trait CredentialStoreApi {
         user: &str,
         attrs: Option<&HashMap<&str, &str>>,
     ) -> Result<Box<Credential>>;
+
+    /// Search for credentials that match the given spec.
+    ///
+    /// Returns a list of the matching credentials.
+    ///
+    /// Should return an [Invalid](Error::Invalid) error if the spec is bad.
+    ///
+    /// The default implementation returns a
+    /// [NotSupportedByStore](Error::NotSupportedByStore) error; that is,
+    /// credential stores need not provide support for search.
+    fn search(&self, _spec: &HashMap<&str, &str>) -> Result<Vec<Box<Credential>>> {
+        let vendor = self.vendor();
+        Err(Error::NotSupportedByStore(vendor))
+    }
 
     /// Return the underlying concrete object cast to [Any].
     ///
