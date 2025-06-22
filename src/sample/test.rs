@@ -467,6 +467,68 @@ fn test_simultaneous_multiple_create_delete_single_thread() {
 }
 
 #[test]
+fn test_search() {
+    let store: Arc<CredentialStore> = super::store::Store::new();
+    assert!(matches!(
+        store.search(&HashMap::from([
+            ("service", "foo"),
+            ("user", "bar"),
+            ("baz", "bam")
+        ])),
+        Err(Error::Invalid(_, _))
+    ));
+    assert!(matches!(
+        store.search(&HashMap::from([("service", "foo")])),
+        Err(Error::Invalid(_, _))
+    ));
+    assert!(matches!(
+        store.search(&HashMap::from([("user", "foo")])),
+        Err(Error::Invalid(_, _))
+    ));
+    let all = store
+        .search(&HashMap::from([("service", ""), ("user", "")]))
+        .expect("Search for empty values failed");
+    assert!(all.is_empty());
+    let e1 = store
+        .build("foo", "bar", None)
+        .expect("Failed to build foo/bar");
+    e1.set_password("e1")
+        .expect("Failed to set password for e1");
+    let all = store
+        .search(&HashMap::from([("service", ""), ("user", "")]))
+        .expect("Search for empty values failed");
+    assert_eq!(all.len(), 1, "Should have found all entries (just foo/bar)");
+    let e2 = store
+        .build("foo", "bam", None)
+        .expect("Failed to build foo/bam");
+    e2.set_password("e2")
+        .expect("Failed to set password for e2");
+    let one = store
+        .search(&HashMap::from([("service", ""), ("user", "m")]))
+        .expect("Search for one value failed");
+    assert_eq!(one.len(), 1, "Should have found one entry (foo/bam)");
+    _ = store
+        .build(
+            "foo",
+            "bar",
+            Some(&HashMap::from([("target", "foo bar again")])),
+        )
+        .expect("Failed to build ambiguous foo/bar");
+    let two = store
+        .search(&HashMap::from([("service", "foo"), ("user", "bar")]))
+        .expect("Search for two values failed");
+    assert_eq!(two.len(), 2, "Should have found two entries (foo/bar both)");
+    let three = store
+        .search(&HashMap::from([("service", "foo"), ("user", "")]))
+        .expect("Search for three values failed");
+    assert_eq!(
+        three.len(),
+        3,
+        "Should have found three entries (service foo)"
+    );
+}
+
+#[test]
 fn test_persistence_no_backing() {
     let store: Arc<CredentialStore> = super::store::Store::new();
     assert!(matches!(

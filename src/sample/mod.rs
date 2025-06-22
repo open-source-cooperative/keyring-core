@@ -65,6 +65,16 @@ the created credential to have two additional attributes:
 Credentials in this store don't have attributes other than those
 described in the section on Ambiguity above.
 
+# Search
+
+This store implements search using regular expression values
+for the `service` and `user` attributes of the credential ID.
+Both `service` and `user` expressions must be specified in the spec,
+and no other keys are allowed. The match performed is a substring
+match (so an empty expression matches all values). Both the
+service name and username of a credential must match
+the spec for that credential to be returned from the search.
+
  */
 
 pub mod credential;

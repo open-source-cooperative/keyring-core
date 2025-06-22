@@ -57,6 +57,9 @@ pub enum Error {
     /// This indicates that there was no default credential builder to use;
     /// the client must set one before creating entries.
     NoDefaultStore,
+    /// This indicates that the requested operation is unsupported by the
+    /// store handling the request. The vendor of the store is the value.
+    NotSupportedByStore(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -88,6 +91,13 @@ impl std::fmt::Display for Error {
                 write!(
                     f,
                     "No default credential builder is available; set one before creating entries"
+                )
+            }
+            Error::NotSupportedByStore(vendor) => {
+                write!(
+                    f,
+                    "The requested store (vendor: {}) does not support this operation",
+                    vendor
                 )
             }
         }
