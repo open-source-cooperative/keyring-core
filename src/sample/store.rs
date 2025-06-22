@@ -1,10 +1,10 @@
+use std::any::Any;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock, Weak};
+
 use dashmap::DashMap;
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
-use std::any::Any;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::sync::{Arc, RwLock, Weak};
 
 use super::credential::{CredId, CredKey};
 use crate::{
@@ -48,7 +48,7 @@ pub struct Store {
     pub backing: Option<String>, // the backing file, if any
 }
 
-impl Debug for Store {
+impl std::fmt::Debug for Store {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Store")
             .field("index", &self.index)
@@ -60,10 +60,14 @@ impl Debug for Store {
 
 impl Drop for Store {
     fn drop(&mut self) {
-        debug!("Saving store {:?} on drop...", self);
-        match self.save() {
-            Ok(_) => debug!("Save of store {:?} complete.", self),
-            Err(e) => error!("Save of store {:?} failed: {:?}", self, e),
+        if self.backing.is_none() {
+            debug!("dropping store {:?}", self)
+        } else {
+            debug!("Saving store {:?} on drop...", self);
+            match self.save() {
+                Ok(_) => debug!("Save of store {:?} completed.", self),
+                Err(e) => error!("Save of store {:?} failed: {:?}", self, e),
+            }
         }
     }
 }
@@ -179,14 +183,14 @@ impl CredentialStoreApi for Store {
     ) -> Result<Box<Credential>> {
         let id = CredId {
             service: service.to_owned(),
-            username: user.to_owned(),
+            user: user.to_owned(),
         };
         let guard = STORES
             .read()
             .expect("Poisoned RwLock at credential creation: report a bug!");
         let store = guard
             .get(self.index)
-            .expect("Missing weak pointer at credential creation: report a bug!")
+            .expect("Missing weak ref at credential creation: report a bug!")
             .upgrade()
             .expect("Missing store at credential creation: report a bug!");
         let mut key = CredKey {
@@ -213,6 +217,59 @@ impl CredentialStoreApi for Store {
             }
         }
         Ok(Box::new(key))
+    }
+
+    /// See the API docs.
+    ///
+    /// The specification must contain exactly two keys - `service` and `user` -
+    /// and their values must be valid regular expressions.
+    /// Every credential whose service name matches the service regex
+    /// _and_ whose username matches the user regex will be returned.
+    /// (The match is a substring match, so the empty string will match every value.)
+    fn search(&self, spec: &HashMap<&str, &str>) -> Result<Vec<Box<Credential>>> {
+        let mut result: Vec<Box<Credential>> = Vec::new();
+        let svc = regex::Regex::new(
+            spec.get("service")
+                .ok_or_else(|| Invalid("service".to_string(), "must be specified".to_string()))?,
+        )
+        .map_err(|e| Invalid("service regex".to_string(), e.to_string()))?;
+        let usr = regex::Regex::new(
+            spec.get("user")
+                .ok_or_else(|| Invalid("user".to_string(), "must be specified".to_string()))?,
+        )
+        .map_err(|e| Invalid("service regex".to_string(), e.to_string()))?;
+        if spec.len() != 2 {
+            return Err(Invalid(
+                "spec".to_string(),
+                "must only have service and entry".to_string(),
+            ));
+        }
+        let guard = STORES
+            .read()
+            .expect("Poisoned RwLock at credential creation: report a bug!");
+        let store = guard
+            .get(self.index)
+            .expect("Missing weak ref at credential creation: report a bug!")
+            .upgrade()
+            .expect("Missing store at credential creation: report a bug!");
+        for pair in self.creds.iter() {
+            if !svc.is_match(pair.key().service.as_str()) {
+                continue;
+            }
+            if !usr.is_match(pair.key().user.as_str()) {
+                continue;
+            }
+            for (i, o) in pair.value().iter().enumerate() {
+                if o.is_some() {
+                    result.push(Box::new(CredKey {
+                        store: store.clone(),
+                        id: pair.key().clone(),
+                        cred_index: i,
+                    }))
+                }
+            }
+        }
+        Ok(result)
     }
 
     //// See the API docs.

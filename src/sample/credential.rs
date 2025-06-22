@@ -12,7 +12,7 @@ use super::store::{CredValue, Store};
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct CredId {
     pub service: String,
-    pub username: String,
+    pub user: String,
 }
 
 /// Each of these keys specifies a specific credential in the store.
