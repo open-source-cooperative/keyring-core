@@ -73,11 +73,6 @@ pub struct MockData {
 }
 
 impl CredentialApi for MockCredential {
-    /// Every mock credential is a specifier
-    fn is_specifier(&self) -> bool {
-        true
-    }
-
     /// Set a password on a mock credential.
     ///
     /// If there is an error in the mock, it will be returned

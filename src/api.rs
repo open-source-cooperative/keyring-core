@@ -17,9 +17,6 @@ use super::{Error, Result};
 
 /// The API that [credentials](Credential) implement.
 pub trait CredentialApi {
-    /// Whether the entry specifies a credential.
-    fn is_specifier(&self) -> bool;
-
     /// Set the entry's protected data to be the given string.
     ///
     /// This method has a default implementation in terms of
@@ -33,9 +30,8 @@ pub trait CredentialApi {
     /// Expected behavior:
     ///
     /// - If the entry has no associated credential:
-    ///   - If the entry is a specifier, an associated credential is created
-    ///     and the password is saved in that credential's data.
-    ///   - Otherwise, return a [NoEntry](Error::NoEntry) error.
+    ///   - If the entry is a specifier, create a credential and save the data in it.
+    ///   - If the entry is a wrapper, return a [NoEntry](Error::NoEntry) error.
     /// - If the entry has exactly one associated credential,
     ///   this will update the data saved in that credential.
     /// - If the entry has multiple associated credentials,

@@ -12,11 +12,8 @@ dependency, along with one or more keyring-compatible credential-stores.
 
 ## Usage
 
-To use this crate in your project, include it in your `Cargo.toml`:
-
-```toml
-keyring-core = "0.1"
-```
+To use this crate in your project, include it in your `Cargo.toml`, either with or without the `sample` feature (which
+enables a credential store useful while testing). There are no default features.
 
 In your client code, set your default credential store using the `set_default_store` function. Then you can
 use the `Entry::new` function to create a new keyring entry. The `new` function takes a service name and a user's name

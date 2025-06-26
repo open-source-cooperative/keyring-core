@@ -10,7 +10,7 @@ are integer error codes, this requirement
 is not much of a burden on the platform-specific store providers.)
  */
 
-use crate::Credential;
+use crate::Entry;
 
 #[derive(Debug)]
 /// Each variant of the `Error` enum provides a summary of the error.
@@ -52,8 +52,9 @@ pub enum Error {
     /// and the reason it's invalid.
     Invalid(String, String),
     /// This indicates that there is more than one credential found in the store
-    /// that matches the entry.  Its value is a vector of the matching credentials.
-    Ambiguous(Vec<Box<Credential>>),
+    /// that matches the entry.  Its value is a vector of entries wrapping
+    /// the matching credentials.
+    Ambiguous(Vec<Entry>),
     /// This indicates that there was no default credential builder to use;
     /// the client must set one before creating entries.
     NoDefaultStore,

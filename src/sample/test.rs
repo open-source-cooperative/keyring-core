@@ -1,13 +1,16 @@
+use super::credential::{CredId, CredKey};
+use super::store::{CredValue, Store};
+use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::{Arc, Once};
-
-use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
+use uuid::Uuid;
 
 static SET_STORE: Once = Once::new();
 
 fn usually_goes_in_main() {
     let _ = env_logger::builder().is_test(true).try_init();
-    crate::set_default_store(super::store::Store::new());
+    crate::set_default_store(Store::new());
 }
 
 fn entry_new(service: &str, user: &str) -> Entry {
@@ -199,6 +202,7 @@ fn test_get_update_attributes() {
             .expect("No comment on entry1"),
         "some comment"
     );
+    entry1.delete_credential().expect("Can't delete entry1");
     let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry2")]));
     assert_eq!(
         entry2.get_password().expect("Can't get entry2 password"),
@@ -221,50 +225,132 @@ fn test_get_update_attributes() {
             .expect("No comment on entry2"),
         "some comment"
     );
-    entry1.delete_credential().expect("Can't delete entry1");
     entry2.delete_credential().expect("Can't delete entry2");
+}
+
+#[test]
+fn test_with_unique_credential_helper() {
+    let store: Arc<Store> = Store::new();
+    // test NoEntry
+    {
+        let name = generate_random_string();
+        let id = CredId {
+            service: name.clone(),
+            user: name.clone(),
+        };
+        let spec = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: None,
+        };
+        assert!(matches!(spec.with_unique_cred(|_| ()), Err(Error::NoEntry),));
+        let wrapper = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: Some(Uuid::new_v4().to_string()),
+        };
+        assert!(matches!(
+            wrapper.with_unique_cred(|_| ()),
+            Err(Error::NoEntry),
+        ));
+    }
+    // test ambiguity
+    {
+        let name = generate_random_string();
+        let id = CredId {
+            service: name.clone(),
+            user: name.clone(),
+        };
+        let spec = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: None,
+        };
+        let uuid1 = Uuid::new_v4().to_string();
+        let uuid2 = Uuid::new_v4().to_string();
+        let wrapper1 = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: Some(uuid1.clone()),
+        };
+        let wrapper2 = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: Some(uuid2.clone()),
+        };
+        let creds = DashMap::new();
+        creds.insert(uuid1.clone(), CredValue::new(&[1u8, 2u8]));
+        creds.insert(uuid2.clone(), CredValue::new(&[2u8, 2u8]));
+        store.creds.insert(id.clone(), creds);
+        assert!(matches!(
+            wrapper1.with_unique_cred(|cred| cred.secret[0]),
+            Ok(1u8),
+        ));
+        assert!(matches!(
+            wrapper2.with_unique_cred(|cred| cred.secret[0]),
+            Ok(2u8),
+        ));
+        assert!(matches!(
+            spec.with_unique_cred(|cred| cred.secret[0]),
+            Err(Error::Ambiguous(_)),
+        ))
+    }
 }
 
 #[test]
 fn test_credential_and_ambiguous_credential() {
     let name = generate_random_string();
     let entry1 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry1")]));
-    assert!(entry1.is_specifier(), "entry1 is not a specifier");
     entry1
         .set_password("password for entry1")
         .expect("Can't set password for entry1");
-    let credential1: &super::credential::CredKey = entry1
+    let credential1: &CredKey = entry1
         .get_credential()
         .downcast_ref()
         .expect("Not a sample store credential");
-    assert_eq!(credential1.cred_index, 0, "entry1 index should be 0");
+    assert!(credential1.uuid.is_none());
     let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry2")]));
-    assert!(!entry2.is_specifier(), "entry2 is a specifier");
-    entry2
-        .set_password("password for entry2")
-        .expect("Can't set password for entry2");
-    let credential2: &super::credential::CredKey = entry2
+    let credential2: &CredKey = entry2
         .get_credential()
         .downcast_ref()
         .expect("Not a sample store credential");
-    assert_eq!(credential2.cred_index, 1, "entry2 index should be 1");
-    entry2
+    assert!(credential2.uuid.is_none());
+    let err1 = entry1.set_password("password for entry1");
+    let Err(Error::Ambiguous(entries1)) = err1 else {
+        panic!("not an ambiguous error")
+    };
+    let err2 = entry2.set_password("password for entry2");
+    let Err(Error::Ambiguous(entries2)) = err2 else {
+        panic!("not an ambiguous error")
+    };
+    assert_eq!(entries1.len(), 2);
+    assert_eq!(entries2.len(), 2);
+    let amb1: &CredKey = entries1[0].get_credential().downcast_ref().unwrap();
+    let amb2: &CredKey = entries1[1].get_credential().downcast_ref().unwrap();
+    assert_ne!(amb1.uuid.as_ref().unwrap(), amb2.uuid.as_ref().unwrap());
+    assert!(matches!(
+        entry2.delete_credential(),
+        Err(Error::Ambiguous(_))
+    ));
+    entries1[0]
         .delete_credential()
-        .expect("Couldn't delete entry2 credential");
-    assert!(matches!(entry2.get_password(), Err(Error::NoEntry)));
+        .expect("Can't delete ambiguous wrapper 1");
     entry2
         .set_password("second password for entry2")
-        .expect_err("Can set password after deleting entry2");
+        .expect("Can set password after deleting an ambiguous entry");
     entry1
         .delete_credential()
-        .expect("Couldn't delete entry1 credential");
+        .expect("Can delete single credential");
     entry1
         .set_password("second password for entry1")
-        .expect("Can't set password after deleting entry1");
+        .expect("Can set password for spec with no credential");
+    let cred1: &CredKey = entry1.get_credential().downcast_ref().unwrap();
+    // make sure we got a new UUID after deleting and remaking credential
+    assert_ne!(amb1.uuid.as_ref().unwrap(), &cred1.get_uuid().unwrap());
+    assert_ne!(amb2.uuid.as_ref().unwrap(), &cred1.get_uuid().unwrap());
     entry1
         .delete_credential()
-        .expect("Couldn't delete entry1 credential after resetting password");
-    assert!(matches!(entry1.get_password(), Err(Error::NoEntry)));
+        .expect("Can delete single credential");
 }
 
 #[test]
@@ -468,7 +554,7 @@ fn test_simultaneous_multiple_create_delete_single_thread() {
 
 #[test]
 fn test_search() {
-    let store: Arc<CredentialStore> = super::store::Store::new();
+    let store: Arc<CredentialStore> = Store::new();
     assert!(matches!(
         store.search(&HashMap::from([
             ("service", "foo"),
@@ -530,7 +616,7 @@ fn test_search() {
 
 #[test]
 fn test_persistence_no_backing() {
-    let store: Arc<CredentialStore> = super::store::Store::new();
+    let store: Arc<CredentialStore> = Store::new();
     assert!(matches!(
         store.persistence(),
         CredentialPersistence::ProcessOnly
@@ -545,8 +631,7 @@ fn test_persistence_with_backing_and_save() {
         .unwrap()
         .to_string();
     _ = std::fs::remove_file(&path);
-    let s1 =
-        super::store::Store::new_with_backing(&path).expect("Failed to create empty, backed store");
+    let s1 = Store::new_with_backing(&path).expect("Failed to create empty, backed store");
     let cred_store: Arc<CredentialStore> = s1.clone();
     assert!(matches!(
         cred_store.persistence(),
@@ -566,8 +651,7 @@ fn test_persistence_with_backing_and_save() {
     e2.set_password("pw2").expect("Couldn't set e2 password");
     assert_eq!(s1.as_ref().creds.len(), 2);
     s1.save().expect("Failure saving store");
-    let s2 =
-        super::store::Store::new_with_backing(&path).expect("Failed to re-create existing store");
+    let s2 = Store::new_with_backing(&path).expect("Failed to re-create existing store");
     assert_eq!(s2.as_ref().creds.len(), 2);
 }
 
@@ -580,8 +664,7 @@ fn test_persistence_with_backing_and_drop() {
         .to_string();
     _ = std::fs::remove_file(&path);
     {
-        let s1 = super::store::Store::new_with_backing(&path)
-            .expect("Failed to create empty, backed store");
+        let s1 = Store::new_with_backing(&path).expect("Failed to create empty, backed store");
         let cred_store: Arc<CredentialStore> = s1.clone();
         assert_eq!(s1.as_ref().creds.len(), 0);
         let e1 = cred_store
@@ -597,7 +680,6 @@ fn test_persistence_with_backing_and_drop() {
         e2.set_password("pw2").expect("Couldn't set e2 password");
         assert_eq!(s1.as_ref().creds.len(), 2);
     }
-    let s2 =
-        super::store::Store::new_with_backing(&path).expect("Failed to re-create existing store");
+    let s2 = Store::new_with_backing(&path).expect("Failed to re-create existing store");
     assert_eq!(s2.as_ref().creds.len(), 2);
 }

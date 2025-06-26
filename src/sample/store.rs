@@ -2,10 +2,6 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 
-use dashmap::DashMap;
-use log::{debug, error};
-use serde::{Deserialize, Serialize};
-
 use super::credential::{CredId, CredKey};
 use crate::{
     Credential,
@@ -13,6 +9,10 @@ use crate::{
     Result,
     api::{CredentialPersistence, CredentialStoreApi},
 };
+use dashmap::DashMap;
+use log::{debug, error};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// The stored data for a credential
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,8 +22,26 @@ pub struct CredValue {
     pub creation_date: Option<String>,
 }
 
+impl CredValue {
+    pub fn new(secret: &[u8]) -> Self {
+        CredValue {
+            secret: secret.to_vec(),
+            comment: None,
+            creation_date: None,
+        }
+    }
+
+    pub fn new_ambiguous(comment: &str) -> CredValue {
+        CredValue {
+            secret: vec![],
+            comment: Some(comment.to_string()),
+            creation_date: Some(chrono::Local::now().to_rfc2822()),
+        }
+    }
+}
+
 /// A map from <service, user> pairs to matching credentials
-pub type CredMap = DashMap<CredId, Vec<Option<CredValue>>>;
+pub type CredMap = DashMap<CredId, DashMap<String, CredValue>>;
 
 /// The list of extant credential stores.
 ///
@@ -65,7 +83,7 @@ impl Drop for Store {
         } else {
             debug!("Saving store {:?} on drop...", self);
             match self.save() {
-                Ok(_) => debug!("Save of store {:?} completed.", self),
+                Ok(_) => debug!("Save of store {:?} completed", self),
                 Err(e) => error!("Save of store {:?} failed: {:?}", self, e),
             }
         }
@@ -193,25 +211,23 @@ impl CredentialStoreApi for Store {
             .expect("Missing weak ref at credential creation: report a bug!")
             .upgrade()
             .expect("Missing store at credential creation: report a bug!");
-        let mut key = CredKey {
+        let key = CredKey {
             store,
             id: id.clone(),
-            cred_index: 0,
+            uuid: None,
         };
         if let Some(mods) = mods {
             if let Some(target) = mods.get("target") {
-                let value = CredValue {
-                    secret: Vec::new(),
-                    comment: Some(target.to_string()),
-                    creation_date: Some(chrono::Local::now().to_rfc2822()),
-                };
-                match self.creds.get_mut(&id) {
+                let uuid = Uuid::new_v4().to_string();
+                let value = CredValue::new_ambiguous(target);
+                match self.creds.get(&id) {
                     None => {
-                        self.creds.insert(id, vec![Some(value)]);
+                        let creds = DashMap::new();
+                        creds.insert(uuid, value);
+                        self.creds.insert(id, creds);
                     }
-                    Some(mut creds) => {
-                        (*creds).push(Some(value));
-                        key.cred_index = creds.len() - 1;
+                    Some(creds) => {
+                        creds.value().insert(uuid, value);
                     }
                 };
             }
@@ -259,14 +275,12 @@ impl CredentialStoreApi for Store {
             if !usr.is_match(pair.key().user.as_str()) {
                 continue;
             }
-            for (i, o) in pair.value().iter().enumerate() {
-                if o.is_some() {
-                    result.push(Box::new(CredKey {
-                        store: store.clone(),
-                        id: pair.key().clone(),
-                        cred_index: i,
-                    }))
-                }
+            for cred in pair.value().iter() {
+                result.push(Box::new(CredKey {
+                    store: store.clone(),
+                    id: pair.key().clone(),
+                    uuid: Some(cred.key().clone()),
+                }))
             }
         }
         Ok(result)

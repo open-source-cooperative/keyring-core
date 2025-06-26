@@ -1,12 +1,13 @@
-use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::Error;
-use crate::api::CredentialApi;
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::store::{CredValue, Store};
+use crate::{Entry, Error, Result, api::CredentialApi};
 
 /// Credentials are specified by a pair of service name and username.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -28,92 +29,117 @@ pub struct CredId {
 pub struct CredKey {
     pub store: Arc<Store>,
     pub id: CredId,
-    pub cred_index: usize,
+    pub uuid: Option<String>,
+}
+
+impl CredKey {
+    /// This is the boilerplate for all credential-reading/updating calls.
+    ///
+    /// It makes sure there is just one credential and, if so, it reads/updates it.
+    /// If there is no credential, it returns a NoEntry error.
+    /// If there are multiple credentials, it returns an ambiguous error.
+    ///
+    /// It knows about the difference between specifiers and wrappers,
+    /// and acts accordingly.
+    pub fn with_unique_pair<T, F>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&String, &mut CredValue) -> T,
+    {
+        match self.uuid.as_ref() {
+            // this is a wrapper, look for the cred, and if found get it, else fail
+            Some(key) => match self.store.creds.get(&self.id) {
+                None => Err(Error::NoEntry),
+                Some(pair) => match pair.value().get_mut(key) {
+                    None => Err(Error::NoEntry),
+                    Some(mut cred) => {
+                        let (key, val) = cred.pair_mut();
+                        Ok(f(key, val))
+                    }
+                },
+            },
+            // this is a specifier
+            None => {
+                match self.store.creds.get(&self.id) {
+                    // there are no creds: create the only one and set it
+                    None => Err(Error::NoEntry),
+                    // this is a specifier: check for ambiguity and get if not
+                    Some(pair) => {
+                        let creds = pair.value();
+                        match creds.len() {
+                            // no matching cred, can't read or update
+                            0 => Err(Error::NoEntry),
+                            // just one current cred, get it
+                            1 => {
+                                let mut first = creds.iter_mut().next().unwrap();
+                                let (key, val) = first.pair_mut();
+                                Ok(f(key, val))
+                            }
+                            // more than one cred - ambiguous!
+                            _ => {
+                                let mut entries: Vec<Entry> = vec![];
+                                for cred in creds.iter() {
+                                    let key = CredKey {
+                                        store: self.store.clone(),
+                                        id: self.id.clone(),
+                                        uuid: Some(cred.key().clone()),
+                                    };
+                                    entries.push(Entry::new_with_credential(Box::new(key)));
+                                }
+                                Err(Error::Ambiguous(entries))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A simpler form of boilerplate which just looks at the cred's value
+    pub fn with_unique_cred<T, F>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut CredValue) -> T,
+    {
+        self.with_unique_pair(|_, cred| f(cred))
+    }
+
+    /// This is like `get_secret`, but it returns the UUID of the sole credential
+    /// rather than the secret.
+    ///
+    /// It works on both specifiers and wrappers.
+    pub fn get_uuid(&self) -> Result<String> {
+        self.with_unique_pair(|uuid, _| uuid.to_string())
+    }
 }
 
 impl CredentialApi for CredKey {
     /// See the API docs.
-    ///
-    /// In this store, only the key with index 0 is a specifier;
-    /// all the others are only wrappers.
-    fn is_specifier(&self) -> bool {
-        self.cred_index == 0
-    }
-
-    /// See the API docs.
-    fn set_secret(&self, secret: &[u8]) -> crate::Result<()> {
-        match self.store.creds.get_mut(&self.id) {
-            None => {
-                if self.cred_index != 0 {
-                    return Err(Error::NoEntry);
-                }
-                let cred = CredValue {
-                    secret: secret.to_vec(),
-                    comment: None,
-                    creation_date: None,
-                };
-                self.store.creds.insert(self.id.clone(), vec![Some(cred)]);
+    fn set_secret(&self, secret: &[u8]) -> Result<()> {
+        let result = self.with_unique_cred(|cred| cred.secret = secret.to_vec());
+        match result {
+            // there are no creds and this is a specifier: create the cred
+            Err(Error::NoEntry) if self.uuid.is_none() => {
+                let value = CredValue::new(secret);
+                let creds = DashMap::new();
+                creds.insert(Uuid::new_v4().to_string(), value);
+                self.store.creds.insert(self.id.clone(), creds);
                 Ok(())
             }
-            Some(mut creds) => match creds.get_mut(self.cred_index) {
-                None => Err(Error::NoEntry),
-                Some(None) if self.cred_index == 0 => {
-                    (*creds)[0] = Some(CredValue {
-                        secret: secret.to_vec(),
-                        comment: None,
-                        creation_date: None,
-                    });
-                    Ok(())
-                }
-                Some(None) => Err(Error::NoEntry),
-                Some(Some(cred)) => {
-                    cred.secret = secret.to_vec();
-                    Ok(())
-                }
-            },
+            // either it's a wrapper with no cred or it's an ambiguous spec
+            other => other,
         }
     }
 
     /// See the API docs.
-    fn get_secret(&self) -> crate::Result<Vec<u8>> {
-        match self.store.creds.get(&self.id) {
-            None => Err(Error::NoEntry),
-            Some(creds) => match creds.get(self.cred_index) {
-                None => Err(Error::NoEntry),
-                Some(None) => Err(Error::NoEntry),
-                Some(Some(cred)) => Ok(cred.secret.clone()),
-            },
-        }
+    fn get_secret(&self) -> Result<Vec<u8>> {
+        self.with_unique_cred(|cred| cred.secret.clone())
     }
 
     /// See the API docs.
     ///
     /// The only attributes on credentials in this store are `comment`
     /// and `creation_date`.
-    fn get_attributes(&self) -> crate::Result<HashMap<String, String>> {
-        match self.store.creds.get(&self.id) {
-            None => Err(Error::NoEntry),
-            Some(creds) => match creds.get(self.cred_index) {
-                None => Err(Error::NoEntry),
-                Some(None) => Err(Error::NoEntry),
-                Some(Some(cred)) => {
-                    let mut attrs = HashMap::new();
-                    if cred.creation_date.is_some() {
-                        attrs.insert(
-                            "creation_date".to_string(),
-                            cred.creation_date.as_ref().unwrap().to_string(),
-                        );
-                    }
-                    if cred.comment.is_some() {
-                        attrs.insert(
-                            "comment".to_string(),
-                            cred.comment.as_ref().unwrap().to_string(),
-                        );
-                    }
-                    Ok(attrs)
-                }
-            },
-        }
+    fn get_attributes(&self) -> Result<HashMap<String, String>> {
+        self.with_unique_cred(|cred| get_attrs(cred))
     }
 
     /// See the API docs.
@@ -121,40 +147,37 @@ impl CredentialApi for CredKey {
     /// Only the `comment` attribute can be updated. The `creation_date`
     /// attribute cannot be modified and specifying it will produce an error.
     /// All other attributes are ignored.
-    fn update_attributes(&self, attrs: &HashMap<&str, &str>) -> crate::Result<()> {
-        match self.store.creds.get_mut(&self.id) {
-            None => Err(Error::NoEntry),
-            Some(mut creds) => match creds.get_mut(self.cred_index) {
-                None => Err(Error::NoEntry),
-                Some(None) => Err(Error::NoEntry),
-                Some(Some(cred)) => {
-                    if attrs.contains_key("creation_date") {
-                        return Err(Error::Invalid(
-                            "creation_date".to_string(),
-                            "cannot be updated".to_string(),
-                        ));
-                    }
-                    if let Some(comment) = attrs.get("comment") {
-                        cred.comment = Some(comment.to_string());
-                    }
-                    Ok(())
-                }
-            },
+    fn update_attributes(&self, attrs: &HashMap<&str, &str>) -> Result<()> {
+        if attrs.contains_key("creation_date") {
+            return Err(Error::Invalid(
+                "creation_date".to_string(),
+                "cannot be updated".to_string(),
+            ));
         }
+        self.with_unique_cred(|cred| update_attrs(cred, attrs))
     }
 
     /// See the API docs.
-    fn delete_credential(&self) -> crate::Result<()> {
-        match self.store.creds.get_mut(&self.id) {
-            None => Err(Error::NoEntry),
-            Some(mut creds) => match creds.get(self.cred_index) {
-                None => Err(Error::NoEntry),
-                Some(None) => Err(Error::NoEntry),
-                Some(Some(_)) => {
-                    (*creds)[self.cred_index] = None;
-                    Ok(())
+    fn delete_credential(&self) -> Result<()> {
+        let result = self.with_unique_cred(|_| ());
+        match result {
+            // there is exactly one matching cred, delete it
+            Ok(_) => {
+                match self.uuid.as_ref() {
+                    // this is a wrapper, delete the credential key from the map
+                    Some(uuid) => {
+                        self.store.creds.get(&self.id).unwrap().value().remove(uuid);
+                        Ok(())
+                    }
+                    // this is a specifier, and there's only credential, delete the map
+                    None => {
+                        self.store.creds.remove(&self.id);
+                        Ok(())
+                    }
                 }
-            },
+            }
+            // there's no cred or many creds, return the error
+            other => other,
         }
     }
 
@@ -166,5 +189,34 @@ impl CredentialApi for CredKey {
     /// See the API docs.
     fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
+    }
+}
+
+/// get the attributes on a credential
+///
+/// This is a helper function used by get_attributes
+pub fn get_attrs(cred: &CredValue) -> HashMap<String, String> {
+    let mut attrs = HashMap::new();
+    if cred.creation_date.is_some() {
+        attrs.insert(
+            "creation_date".to_string(),
+            cred.creation_date.as_ref().unwrap().to_string(),
+        );
+    }
+    if cred.comment.is_some() {
+        attrs.insert(
+            "comment".to_string(),
+            cred.comment.as_ref().unwrap().to_string(),
+        );
+    };
+    attrs
+}
+
+/// update the attributes on a credential
+///
+/// This is a helper function used by update_attributes
+pub fn update_attrs(cred: &mut CredValue, attrs: &HashMap<&str, &str>) {
+    if let Some(comment) = attrs.get("comment") {
+        cred.comment = Some(comment.to_string());
     }
 }
