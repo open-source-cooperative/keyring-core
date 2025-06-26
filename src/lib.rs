@@ -41,7 +41,7 @@ able to recreate it.
 
 There are two APIs for creating entries that are wrappers:
 
-* [Entry::new_from_credential] takes an existing store-specific credential object
+* [Entry::new_with_credential] takes an existing store-specific credential object
   and wraps an entry around it. This is useful when you want to use the keyring API
   to manage credentials created or retrieved by store-specific code.
 
@@ -159,7 +159,7 @@ two calls:
   Like [get_password](Entry::get_password), this call will fail
   unless there is an existing credential underlying this entry.
 
-* [Entry::set_attributes] asks the store to update any existing
+* [Entry::update_attributes] asks the store to update any existing
   decorations with those provided by the client.
   Unlike [set_password](Entry::set_password), this call will
   never cause the creation of a credential. You cannot force
@@ -191,7 +191,7 @@ pub mod mock;
 #[cfg(feature = "sample")]
 pub mod sample;
 
-pub use api::{Credential, CredentialStore};
+pub use api::{Credential, CredentialPersistence, CredentialStore};
 pub use error::{Error, Result};
 
 #[derive(Default, Debug)]
@@ -202,7 +202,7 @@ struct DefaultStore {
 static DEFAULT_STORE: std::sync::RwLock<DefaultStore> =
     std::sync::RwLock::new(DefaultStore { inner: None });
 
-/// Set the credential builder used by default to create entries.
+/// Set the credential store used by default to create entries.
 ///
 /// This is meant for use by clients who use one credential store.
 /// If you are using multiple credential stores and want
@@ -221,10 +221,13 @@ pub fn set_default_store(new: Arc<CredentialStore>) {
     guard.inner = Some(new);
 }
 
-// Release the default credential builder.
+// Release the default credential store.
 //
-// This returns the old value for the default credential builder,
-// and forgets what it was.
+// This returns the old value for the default credential store,
+// and forgets what it was. Since the default credential store
+// is kept in a static variable, not releasing it will cause
+// your credential store never to be released, which may have
+// unintended side effects.
 pub fn unset_default_store() -> Option<Arc<CredentialStore>> {
     debug!("unset the default credential store");
     let mut guard = DEFAULT_STORE
@@ -268,12 +271,6 @@ impl Entry {
     ///
     /// Returns a [NoDefaultStore][Error::NoDefaultStore] error
     /// if the default credential store has not been set.
-    ///
-    /// # Panics
-    ///
-    /// In the very unlikely event that the internal credential builder's `RwLock`` is poisoned, this function
-    /// will panic. If you encounter this, and especially if you can reproduce it, please report a bug with the
-    /// details (and preferably a backtrace) so the developers can investigate.
     pub fn new(service: &str, user: &str) -> Result<Entry> {
         debug!("creating entry with service {service}, user {user}");
         let entry = build_default_credential(service, user, None)?;
@@ -296,12 +293,6 @@ impl Entry {
     ///
     /// Returns a [NoDefaultStore][Error::NoDefaultStore] error
     /// if the default credential store has not been set.
-    ///
-    /// # Panics
-    ///
-    /// In the very unlikely event that the internal credential builder's `RwLock`` is poisoned, this function
-    /// will panic. If you encounter this, and especially if you can reproduce it, please report a bug with the
-    /// details (and preferably a backtrace) so the developers can investigate.
     pub fn new_with_modifiers(
         service: &str,
         user: &str,
@@ -340,16 +331,10 @@ impl Entry {
     /// # Errors
     ///
     /// Returns an [Invalid][Error::Invalid] error
-    /// if `spec` value is not acceptable to the default credential store.
+    /// if the `spec` value is not acceptable to the default credential store.
     ///
     /// Returns a [NoDefaultStore][Error::NoDefaultStore] error
     /// if the default credential store has not been set.
-    ///
-    /// # Panics
-    ///
-    /// In the very unlikely event that the internal credential builder's `RwLock`` is poisoned, this function
-    /// will panic. If you encounter this, and especially if you can reproduce it, please report a bug with the
-    /// details (and preferably a backtrace) so the developers can investigate.
     pub fn search_for_credentials(spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
         debug!("searching for {spec:?}");
         let guard = DEFAULT_STORE

@@ -14,19 +14,16 @@ nor secure.
 
 # Persistence
 
-When creating an instance of this store, you specify whether you
-want to use a "backing file" to store credentials between runs
-(or to make them available from multiple applications). If you
-don't specify a backing file, this is an in-memory store only,
-and the credentials vanish when your application terminates.
+When creating an instance of this store, you specify whether you want to use a
+"backing file" to store credentials between runs (or to make them available to
+other applications). If you don't specify a backing file, this is an in-memory
+store only, and the credentials vanish when your application terminates.
 
-Do not think the "backing file" is an up-to-date copy
-of your in-memory credentials! The in-memory credentials are
-only saved to the backing file when explicitly requested
-or when the store is destroyed (that is,
-the last reference to it is released). And the backing file
-is only read when the store is first created, so to read
-a backing file you have to create a new store.
+The "backing file" is _not_ kept up to date as credentials are created, deleted,
+or modified! The in-memory credentials are only saved to the backing file when
+explicitly requested or when a store is destroyed (that is, the last reference
+to it is released). The backing file is only read when a store is first created.
+(To read a backing file, you have to create a new store.)
 
 # Ambiguity
 

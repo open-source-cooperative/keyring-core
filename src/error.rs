@@ -46,10 +46,9 @@ pub enum Error {
     /// attached values give the name of the attribute and
     /// the platform length limit that was exceeded.
     TooLong(String, u32),
-    /// This indicates that one of the entry's required credential
-    /// attributes was invalid.  The
-    /// attached value gives the name of the attribute
-    /// and the reason it's invalid.
+    /// This indicates that one of the parameters passed to the operation
+    /// was invalid. The attached value gives the parameter and
+    /// describes the problem.
     Invalid(String, String),
     /// This indicates that there is more than one credential found in the store
     /// that matches the entry.  Its value is a vector of entries wrapping

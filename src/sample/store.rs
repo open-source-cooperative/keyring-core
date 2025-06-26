@@ -253,7 +253,7 @@ impl CredentialStoreApi for Store {
             spec.get("user")
                 .ok_or_else(|| Invalid("user".to_string(), "must be specified".to_string()))?,
         )
-        .map_err(|e| Invalid("service regex".to_string(), e.to_string()))?;
+        .map_err(|e| Invalid("user regex".to_string(), e.to_string()))?;
         if spec.len() != 2 {
             return Err(Invalid(
                 "spec".to_string(),

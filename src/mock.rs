@@ -10,7 +10,7 @@ in this store have no attributes at all.
 To use this credential store instead of the default, make this call during
 application startup _before_ creating any entries:
 ```rust
-keyring_core::set_default_store(keyring_core::mock::default_store());
+keyring_core::set_default_store(keyring_core::mock::Store::new());
 ```
 
 You can then create entries as you usually do, and call their usual methods
@@ -19,39 +19,40 @@ in the entry itself, so getting a password before setting it will always result
 in a [NoEntry](Error::NoEntry) error.
 
 If you want a method call on an entry to fail in a specific way, you can
-downcast the entry to a [MockCredential] and then call [set_error](MockCredential::set_error)
+downcast the entry to a [Cred] and then call [set_error](Cred::set_error)
 with the appropriate error.  The next entry method called on the credential
 will fail with the error you set.  The error will then be cleared, so the next
 call on the mock will operate as usual.  Here's a complete example:
+
 ```rust
-# use keyring_core::{Entry, Error, mock, mock::MockCredential};
-keyring_core::set_default_store(mock::default_store());
+# use keyring_core::{Entry, Error, mock, mock::Cred};
+keyring_core::set_default_store(mock::Store::new());
 let entry = Entry::new("service", "user").unwrap();
-let mock: &MockCredential = entry.get_credential().downcast_ref().unwrap();
+let mock: &Cred = entry.get_credential().downcast_ref().unwrap();
 mock.set_error(Error::Invalid("mock error".to_string(), "takes precedence".to_string()));
 entry.set_password("test").expect_err("error will override");
 entry.set_password("test").expect("error has been cleared");
 ```
+
  */
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use super::api::{
-    Credential, CredentialApi, CredentialPersistence, CredentialStore, CredentialStoreApi,
-};
-use super::error::{Error, Result, decode_password};
+use super::error::decode_password;
+use crate::api::{CredentialApi, CredentialStoreApi};
+use crate::{Credential, CredentialPersistence, Error, Result};
 
 /// The concrete mock credential
 ///
 /// Mocks use an internal mutability pattern since entries are read-only.
 /// The mutex is used to make sure these are Sync.
 #[derive(Debug)]
-pub struct MockCredential {
-    pub inner: Mutex<RefCell<MockData>>,
+pub struct Cred {
+    pub inner: Mutex<RefCell<CredData>>,
 }
 
-impl Default for MockCredential {
+impl Default for Cred {
     fn default() -> Self {
         Self {
             inner: Mutex::new(RefCell::new(Default::default())),
@@ -61,25 +62,28 @@ impl Default for MockCredential {
 
 /// The (in-memory) persisted data for a mock credential.
 ///
-/// We keep a password, but unlike most keystores
+/// We keep a password but, unlike most credentials stores,
 /// we also keep an intended error to return on the next call.
 ///
 /// (Everything about this structure is public for transparency.
-/// Most keystore implementation hide their internals.)
+/// Most credential store implementations hide their internals.)
 #[derive(Debug, Default)]
-pub struct MockData {
+pub struct CredData {
     pub secret: Option<Vec<u8>>,
     pub error: Option<Error>,
 }
 
-impl CredentialApi for MockCredential {
+impl CredentialApi for Cred {
     /// Set a password on a mock credential.
     ///
     /// If there is an error in the mock, it will be returned
     /// and the password will _not_ be set.  The error will
     /// be cleared, so calling again will set the password.
     fn set_password(&self, password: &str) -> Result<()> {
-        let mut inner = self.inner.lock().expect("Can't access mock data for set");
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("Can't access mock data for set_password");
         let data = inner.get_mut();
         let err = data.error.take();
         match err {
@@ -97,7 +101,10 @@ impl CredentialApi for MockCredential {
     /// and the password will _not_ be set.  The error will
     /// be cleared, so calling again will set the password.
     fn set_secret(&self, secret: &[u8]) -> Result<()> {
-        let mut inner = self.inner.lock().expect("Can't access mock data for set");
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("Can't access mock data for set_secret");
         let data = inner.get_mut();
         let err = data.error.take();
         match err {
@@ -182,7 +189,7 @@ impl CredentialApi for MockCredential {
     }
 }
 
-impl MockCredential {
+impl Cred {
     /// Make a new mock credential.
     ///
     /// Since mocks have no persistence between sessions,
@@ -195,7 +202,7 @@ impl MockCredential {
     ///
     /// Error returns always take precedence over the normal
     /// behavior of the mock.  But once an error has been
-    /// returned it is removed, so the mock works thereafter.
+    /// returned, it is removed, so the mock works thereafter.
     pub fn set_error(&self, err: Error) {
         let mut inner = self
             .inner
@@ -207,8 +214,14 @@ impl MockCredential {
 }
 
 /// The builder for mock credentials.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Store {}
+
+impl Store {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Default::default())
+    }
+}
 
 impl CredentialStoreApi for Store {
     fn vendor(&self) -> String {
@@ -221,7 +234,7 @@ impl CredentialStoreApi for Store {
 
     /// Build a mock credential for the service and user. Any attributes are ignored.
     ///
-    /// Since mocks don't persist beyond the life of their entry,  all mocks
+    /// Since mocks don't persist beyond the life of their entry, all mocks
     /// start off without passwords.
     fn build(
         &self,
@@ -229,7 +242,7 @@ impl CredentialStoreApi for Store {
         _user: &str,
         _: Option<&HashMap<&str, &str>>,
     ) -> Result<Box<Credential>> {
-        let credential = MockCredential::new()?;
+        let credential = Cred::new()?;
         Ok(Box::new(credential))
     }
 
@@ -243,27 +256,31 @@ impl CredentialStoreApi for Store {
         CredentialPersistence::EntryOnly
     }
 
-    /// Expose the concrete debug formatter for use via the [CredentialStore] trait
+    /// Expose the concrete debug formatter
+    /// for use via the [CredentialStore](crate::CredentialStore) trait
     fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
 }
 
-/// Return a mock credential builder for use by clients.
-pub fn default_store() -> Arc<CredentialStore> {
-    Arc::new(Store {})
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{MockCredential, default_store};
-    use crate::api::CredentialPersistence;
-    use crate::{Entry, Error};
-    use std::collections::HashMap;
+    use std::sync::{Arc, Once};
 
-    fn entry_new(_service: &str, _user: &str) -> Entry {
-        let credential = MockCredential::new().unwrap();
-        Entry::new_with_credential(Box::new(credential))
+    use super::{Cred, HashMap, Store};
+    use crate::{CredentialPersistence, CredentialStore, Entry, Error};
+
+    static SET_STORE: Once = Once::new();
+
+    fn usually_goes_in_main() {
+        crate::set_default_store(Store::new());
+    }
+
+    fn entry_new(service: &str, user: &str) -> Entry {
+        SET_STORE.call_once(usually_goes_in_main);
+        Entry::new(service, user).unwrap_or_else(|err| {
+            panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
+        })
     }
 
     fn generate_random_string() -> String {
@@ -432,7 +449,7 @@ mod tests {
         let name = generate_random_string();
         let entry = entry_new(&name, &name);
         let password = "test ascii password";
-        let mock: &MockCredential = entry
+        let mock: &Cred = entry
             .inner
             .as_any()
             .downcast_ref()
@@ -474,16 +491,18 @@ mod tests {
 
     #[test]
     fn test_search() {
-        match default_store().search(&HashMap::new()) {
-            Err(Error::NotSupportedByStore(vendor)) if vendor == default_store().vendor() => (),
+        let store: Arc<CredentialStore> = Store::new();
+        match store.search(&HashMap::new()) {
+            Err(Error::NotSupportedByStore(vendor)) if vendor == store.vendor() => (),
             other => panic!("Unexpected value from search: {:?}", other),
         }
     }
 
     #[test]
     fn test_persistence() {
+        let store: Arc<CredentialStore> = Store::new();
         assert!(matches!(
-            default_store().persistence(),
+            store.persistence(),
             CredentialPersistence::EntryOnly
         ))
     }

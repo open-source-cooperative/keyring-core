@@ -15,9 +15,9 @@ dependency, along with one or more keyring-compatible credential-stores.
 To use this crate in your project, include it in your `Cargo.toml`, either with or without the `sample` feature (which
 enables a credential store useful while testing). There are no default features.
 
-In your client code, set your default credential store using the `set_default_store` function. Then you can
-use the `Entry::new` function to create a new keyring entry. The `new` function takes a service name and a user's name
-which together identify the entry.
+In your client code, set your default credential store using the `set_default_store` function. (Don't forget to unset it
+with `unset_default_store` when you exit.) Then you can use the `Entry::new` function to create a new keyring entry. The
+`new` function takes a service name and a user's name which together identify the entry.
 
 Passwords (strings) or secrets (binary data) can be added to an entry using its `set_password` or `set_secret` methods,
 respectively. (These methods create or update an entry in your chosen credential store.) The password or secret can then
