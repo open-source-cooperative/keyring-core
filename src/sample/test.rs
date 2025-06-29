@@ -305,13 +305,13 @@ fn test_credential_and_ambiguous_credential() {
         .set_password("password for entry1")
         .expect("Can't set password for entry1");
     let credential1: &CredKey = entry1
-        .get_credential()
+        .as_credential()
         .downcast_ref()
         .expect("Not a sample store credential");
     assert!(credential1.uuid.is_none());
     let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry2")]));
     let credential2: &CredKey = entry2
-        .get_credential()
+        .as_credential()
         .downcast_ref()
         .expect("Not a sample store credential");
     assert!(credential2.uuid.is_none());
@@ -325,8 +325,8 @@ fn test_credential_and_ambiguous_credential() {
     };
     assert_eq!(entries1.len(), 2);
     assert_eq!(entries2.len(), 2);
-    let amb1: &CredKey = entries1[0].get_credential().downcast_ref().unwrap();
-    let amb2: &CredKey = entries1[1].get_credential().downcast_ref().unwrap();
+    let amb1: &CredKey = entries1[0].as_credential().downcast_ref().unwrap();
+    let amb2: &CredKey = entries1[1].as_credential().downcast_ref().unwrap();
     assert_ne!(amb1.uuid.as_ref().unwrap(), amb2.uuid.as_ref().unwrap());
     assert!(matches!(
         entry2.delete_credential(),
@@ -344,7 +344,7 @@ fn test_credential_and_ambiguous_credential() {
     entry1
         .set_password("second password for entry1")
         .expect("Can set password for spec with no credential");
-    let cred1: &CredKey = entry1.get_credential().downcast_ref().unwrap();
+    let cred1: &CredKey = entry1.as_credential().downcast_ref().unwrap();
     // make sure we got a new UUID after deleting and remaking credential
     assert_ne!(amb1.uuid.as_ref().unwrap(), &cred1.get_uuid().unwrap());
     assert_ne!(amb2.uuid.as_ref().unwrap(), &cred1.get_uuid().unwrap());

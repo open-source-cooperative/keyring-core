@@ -28,7 +28,7 @@ call on the mock will operate as usual.  Here's a complete example:
 # use keyring_core::{Entry, Error, mock, mock::Cred};
 keyring_core::set_default_store(mock::Store::new());
 let entry = Entry::new("service", "user").unwrap();
-let mock: &Cred = entry.get_credential().downcast_ref().unwrap();
+let mock: &Cred = entry.as_credential().downcast_ref().unwrap();
 mock.set_error(Error::Invalid("mock error".to_string(), "takes precedence".to_string()));
 entry.set_password("test").expect_err("error will override");
 entry.set_password("test").expect("error has been cleared");
@@ -37,7 +37,7 @@ entry.set_password("test").expect("error has been cleared");
  */
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use super::error::decode_password;
 use crate::api::{CredentialApi, CredentialStoreApi};
@@ -176,6 +176,13 @@ impl CredentialApi for Cred {
         }
     }
 
+    /// See the API docs.
+    ///
+    /// This always returns None, since each mock credential is its only wrapper.
+    fn get_credential(&self) -> Result<Option<Arc<Credential>>> {
+        Ok(None)
+    }
+
     /// Return this mock credential concrete object
     /// wrapped in the [Any](std::any::Any) trait,
     /// so it can be downcast.
@@ -214,12 +221,13 @@ impl Cred {
 }
 
 /// The builder for mock credentials.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Store {}
 
 impl Store {
     pub fn new() -> Arc<Self> {
-        Arc::new(Default::default())
+        static DEFAULT_STORE: LazyLock<Arc<Store>> = LazyLock::new(|| Arc::new(Store {}));
+        Arc::clone(&DEFAULT_STORE)
     }
 }
 
@@ -241,9 +249,9 @@ impl CredentialStoreApi for Store {
         _service: &str,
         _user: &str,
         _: Option<&HashMap<&str, &str>>,
-    ) -> Result<Box<Credential>> {
+    ) -> Result<Arc<Credential>> {
         let credential = Cred::new()?;
-        Ok(Box::new(credential))
+        Ok(Arc::new(credential))
     }
 
     /// Get an [Any][std::any::Any] reference to the mock credential builder.

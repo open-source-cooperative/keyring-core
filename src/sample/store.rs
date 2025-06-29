@@ -198,7 +198,7 @@ impl CredentialStoreApi for Store {
         service: &str,
         user: &str,
         mods: Option<&HashMap<&str, &str>>,
-    ) -> Result<Box<Credential>> {
+    ) -> Result<Arc<Credential>> {
         let id = CredId {
             service: service.to_owned(),
             user: user.to_owned(),
@@ -232,7 +232,7 @@ impl CredentialStoreApi for Store {
                 };
             }
         }
-        Ok(Box::new(key))
+        Ok(Arc::new(key))
     }
 
     /// See the API docs.
@@ -242,8 +242,8 @@ impl CredentialStoreApi for Store {
     /// Every credential whose service name matches the service regex
     /// _and_ whose username matches the user regex will be returned.
     /// (The match is a substring match, so the empty string will match every value.)
-    fn search(&self, spec: &HashMap<&str, &str>) -> Result<Vec<Box<Credential>>> {
-        let mut result: Vec<Box<Credential>> = Vec::new();
+    fn search(&self, spec: &HashMap<&str, &str>) -> Result<Vec<Arc<Credential>>> {
+        let mut result: Vec<Arc<Credential>> = Vec::new();
         let svc = regex::Regex::new(
             spec.get("service")
                 .ok_or_else(|| Invalid("service".to_string(), "must be specified".to_string()))?,
@@ -276,7 +276,7 @@ impl CredentialStoreApi for Store {
                 continue;
             }
             for cred in pair.value().iter() {
-                result.push(Box::new(CredKey {
+                result.push(Arc::new(CredKey {
                     store: store.clone(),
                     id: pair.key().clone(),
                     uuid: Some(cred.key().clone()),

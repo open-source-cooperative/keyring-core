@@ -12,6 +12,7 @@ in a thread-safe way, a requirement captured in the [CredentialStore] and
  */
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::{Error, Result};
 
@@ -101,16 +102,27 @@ pub trait CredentialApi {
 
     /// Delete the underlying credential if there is one.
     ///
-    /// If the credential doesn't exist, this should return
+    /// If the underlying credential doesn't exist, return
     /// a [NoEntry](Error::NoEntry) error.
+    ///
+    /// If there is more than one matching credential,
+    /// return an [Ambiguous](Error::Ambiguous) error.
     fn delete_credential(&self) -> Result<()>;
 
-    /// Return the underlying concrete object cast to [Any].
+    /// Return a wrapper for the underlying credential.
     ///
-    /// This allows clients
-    /// to downcast the credential to its concrete type so they
-    /// can do store-specific things with it (e.g.,
-    /// query its attributes in the underlying store).
+    /// If `self` is already a wrapper, return None.
+    ///
+    /// If the underlying credential doesn't exist, return
+    /// a [NoEntry](Error::NoEntry) error.
+    ///
+    /// If there is more than one matching credential,
+    /// return an [Ambiguous](Error::Ambiguous) error.
+    fn get_credential(&self) -> Result<Option<Arc<Credential>>>;
+
+    /// Return the inner credential object cast to [Any].
+    ///
+    /// This call is used to expose the Debug trait for credentials.
     fn as_any(&self) -> &dyn Any;
 
     /// The Debug trait call for the object.
@@ -170,7 +182,7 @@ pub trait CredentialStoreApi {
     /// then they are the same store.
     fn id(&self) -> String;
 
-    /// Create an entry identified by the given service and user,
+    /// Create an entry specified by the given service and user,
     /// perhaps with additional creation-time attributes.
     ///
     /// This typically has no effect on the content of the underlying store.
@@ -180,7 +192,7 @@ pub trait CredentialStoreApi {
         service: &str,
         user: &str,
         attrs: Option<&HashMap<&str, &str>>,
-    ) -> Result<Box<Credential>>;
+    ) -> Result<Arc<Credential>>;
 
     /// Search for credentials that match the given spec.
     ///
@@ -191,16 +203,14 @@ pub trait CredentialStoreApi {
     /// The default implementation returns a
     /// [NotSupportedByStore](Error::NotSupportedByStore) error; that is,
     /// credential stores need not provide support for search.
-    fn search(&self, _spec: &HashMap<&str, &str>) -> Result<Vec<Box<Credential>>> {
+    fn search(&self, _spec: &HashMap<&str, &str>) -> Result<Vec<Arc<Credential>>> {
         let vendor = self.vendor();
         Err(Error::NotSupportedByStore(vendor))
     }
 
-    /// Return the underlying concrete object cast to [Any].
+    /// Return the inner store object cast to [Any].
     ///
-    /// Because credential builders need not have any internal structure,
-    /// this call is not so much for clients
-    /// as it is to allow automatic derivation of a Debug trait for builders.
+    /// This call is used to expose the Debug trait for stores.
     fn as_any(&self) -> &dyn Any;
 
     /// The lifetime of credentials produced by this builder.

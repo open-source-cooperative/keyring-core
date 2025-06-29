@@ -28,7 +28,7 @@ can be removed using the `delete_credential` method.
 use keyring_core::{set_default_store, mock, Entry, Result};
 
 fn main() -> Result<()> {
-    set_default_store(mock::default_store());
+    set_default_store(mock::Store::new());
     let entry = Entry::new("my-service", "my-name")?;
     entry.set_password("topS3cr3tP4$$w0rd")?;
     let password = entry.get_password()?;
@@ -55,17 +55,22 @@ sample store with file-based persistence. See the [developer docs](https://docs.
 
 ## API changes
 
-There are a few changes in the API since its last inclusion in
-the [keyring crate v3](https://crates.io/crates/keyring/3.6.2):
+There are some changes in the API relative to that in the [keyring crate v3](https://crates.io/crates/keyring/3.6.2).
+Both client and credential store developers will need to make changes.
 
-* The older API expected credential stores to be singletons, so that each store module's `default_credential_store`
-  function could be called multiple times and relied on to return the same store. In the current API, credential stores
-  can be objects with their own lifecycle, so they are given to `set_default_credential_store` via an `Arc` rather than
-  a `Box`.
-* The new API is a lot more crisp about whether an entry has been created directly or has been created by wrapping a
-  credential, and what the difference between those two scenarios are. As a result, the Ambiguous error returns a list
-  of entries rather than a list of credentials, and it makes clear which of those entries (if any) is the one that holds
-  the credential that would have been created by the API on a `set_password` call.
+### Client changes
+
+* In the older API, credential stores were fairly opaque, exposing only a credential builder function (which was a
+  singleton). In the current API, credential stores are richer objects with their own lifecycle, so
+  `set_default_credential_builder` has become `set_default_store`, and it receives the default store via a shared `Arc`
+  rather than an owning `Box`. There is also an `unset_default_store` function to release the store.
+* The new API is clearer about whether an entry specifies or wraps a credential, and how their behavior differs. As part
+  of this change, the Ambiguous error now returns a list of entries rather than a list of credentials.
+* The older API's `get_credential` call is now called `as_credential`. The new version of `get_credential` returns an
+  entry which is always a wrapper, and it fails if there is no existing credential for an entry.
+* The new API exposes credential search by building on wrapper entries. Many thanks to @wiimmers for showing the way
+  with his [keyring-search](https://crates.io/crates/keyring-search) crate. I am hoping he will help credential store
+  developers integrate search into their stores.
 
 ## License
 

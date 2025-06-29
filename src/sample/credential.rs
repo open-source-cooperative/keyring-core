@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::store::{CredValue, Store};
-use crate::{Entry, Error, Result, api::CredentialApi};
+use crate::{Credential, Entry, Error, Result, api::CredentialApi};
 
 /// Credentials are specified by a pair of service name and username.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -83,7 +83,7 @@ impl CredKey {
                                         id: self.id.clone(),
                                         uuid: Some(cred.key().clone()),
                                     };
-                                    entries.push(Entry::new_with_credential(Box::new(key)));
+                                    entries.push(Entry::new_with_credential(Arc::new(key)));
                                 }
                                 Err(Error::Ambiguous(entries))
                             }
@@ -116,7 +116,8 @@ impl CredentialApi for CredKey {
     fn set_secret(&self, secret: &[u8]) -> Result<()> {
         let result = self.with_unique_cred(|cred| cred.secret = secret.to_vec());
         match result {
-            // there are no creds and this is a specifier: create the cred
+            Ok(_) => Ok(()),
+            // a specifier with no credential: create the cred
             Err(Error::NoEntry) if self.uuid.is_none() => {
                 let value = CredValue::new(secret);
                 let creds = DashMap::new();
@@ -124,8 +125,8 @@ impl CredentialApi for CredKey {
                 self.store.creds.insert(self.id.clone(), creds);
                 Ok(())
             }
-            // either it's a wrapper with no cred or it's an ambiguous spec
-            other => other,
+            // a wrapper with no cred or an ambiguous spec
+            Err(e) => Err(e),
         }
     }
 
@@ -177,7 +178,23 @@ impl CredentialApi for CredKey {
                 }
             }
             // there's no cred or many creds, return the error
-            other => other,
+            Err(e) => Err(e),
+        }
+    }
+
+    /// See the API docs.
+    ///
+    /// This always returns a new wrapper, even if this is already a wrapper,
+    /// because that's just as easy to do once we've checked the error conditions.
+    fn get_credential(&self) -> Result<Option<Arc<Credential>>> {
+        let result = self.get_uuid();
+        match result {
+            Ok(uuid) => Ok(Some(Arc::new(CredKey {
+                store: self.store.clone(),
+                id: self.id.clone(),
+                uuid: Some(uuid),
+            }))),
+            Err(e) => Err(e),
         }
     }
 

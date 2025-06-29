@@ -26,45 +26,18 @@ _credential store_ to provide security for and persistence of its data
 by storing that data in a _credential_.
 
 There are two kinds of entry: a _wrapper_ that represents a specific credential
-that already exists in the store, and a _specification_ that represents a
-particular credential that might or might not exist in the store. Let's look at each
-of these in turn.
-
-### Wrappers
-
-Some entries are _wrappers_ around a specific, existing credential in the store.
-Setting a password on that entry will store the password in that credential.
-Getting a password will read the password from that credential.
-If that credential is deleted, setting or getting a password on that entry may fail
-because the credential underlying the entry is gone and the store may not be
-able to recreate it.
-
-There are two APIs for creating entries that are wrappers:
-
-* [Entry::new_with_credential] takes an existing store-specific credential object
-  and wraps an entry around it. This is useful when you want to use the keyring API
-  to manage credentials created or retrieved by store-specific code.
-
-* [Entry::search_for_credentials] takes a store-specific search specification
-  and returns entries for all the existing credentials in the store that match the search.
-  This is useful when you want to use the keyring API to manage credentials
-  that were created in third-party applications.
-
-While wrappers are conceptually simple, and are indispensable when you need to
-work with a particular credentials (especially those created by third-party code),
-they aren't either the most common or the most useful type of entry. That would
-be specifications.
+that already exists in a credential store, and a _specification_ that represents a
+credential that might or might not already exist in the store. Let's look at these
+in the opposite order.
 
 ### Specifications
 
 Most entries are _specifications_ for a credential that may or may not yet exist
-in the store.
-When a set-password operation is requested on the entry, that
-credential is found or created, and the password is stored in that credential.
-When a get-password operation is requested on the entry, that credential is found,
-and its data is returned.
-When a delete-credential operation is requested on the entry, the credential
-created by set-password is found and removed from the store.
+in the store. When a set-password operation is requested on a specification
+entry, the credential matching the specification is found or created, and the
+password is stored in that credential. When a get-password operation is
+requested on the entry, the credential matching the specification (if any) is
+found, and its data is returned.
 
 There are two APIs for creating entries that are specifiers:
 
@@ -74,39 +47,31 @@ There are two APIs for creating entries that are specifiers:
   in its own way, each `<service, user>` pair is guaranteed to specify
   a different credential,
   so that entries for different services and/or users never conflict with
-  one another. Clients who use this API need never conditionalize their
-  code based on credential store.
-
-  For example, a credential store that uses the macOS Keychain
-  for its storage might decide that the entry `<service1, user1>`
-  specifies a _generic credential_ in the `Login` keychain whose
-  service attribute is `service1` and whose user attribute is `user1`.
-  If we set that entry's password to be `password1`, and go into the
-  Keychain Access application on our Mac, and look at the Login
-  keychain, the created item would display as follows:
-
-  * Kind: application password
-  * Name: `service1`
-  * Where: `service1`
-  * Account: `user1`
-
-  If we then ask Keychain Access to show the password for that entry.
-  it will interact with the login user to obtain permission, and
-  then display the password `password1`.
+  one another. This is the _only_ credential-creation API needed by most keyring
+  clients.
 
 * [Entry::new_with_modifiers], in addition to the `service` and `user` parameters,
   takes a key-value map of credential-store-specific "modifiers".
   These modifiers may change which credential is specified, or they may
   change characteristics of the specified credential in the store.
-  Clients who use this API need to write specific code for each credential
-  store that takes advantage of its specific modifiers.
+  This API is used by clients who have credential-store-specific needs.
 
-  For example, the macOS Keychain described above might take a `target`
-  modifier whose value specifies whether to use the Login or System
-  keychain to store the credential. If we specify a target of `system`
-  then the store will create the item in the System keychain, and
-  that will require interaction with a system administrator to approve
-  the operation.
+For example, let's consider a credential store that uses the macOS Keychain
+for its storage. Such a store might interpret `Entry::new(service1, user1)`
+to specify a _generic credential_ in the `Login` keychain whose
+service attribute is `service1` and whose user attribute is `user1`.
+If we were to set that entry's password to be `password1`, and
+then go into the Keychain Access application on our Mac,
+we would see a created item with this display:
+
+* Kind: application password
+* Name: `service1`
+* Where: `service1`
+* Account: `user1`
+
+If then told Keychain Access to reveal the password for that entry,
+it would require the logged-in user's permission and
+then display the password `password1`.
 
 Although exactly which credential is specified by an entry is controlled
 by the credential store, different entries with the same specification (same `service`,
@@ -118,7 +83,63 @@ is what allows you to run a keychain-based application multiple times and get
 consistent results: as long as the specifications remain the same, so will the
 credentials used.
 
-### Ambiguity
+### Wrappers
+
+Some entries, rather than specifying credentials by their characteristics,
+directly _wrap_ (aka identify) specific credentials which already exist
+in a credential store.
+Setting a password on a wrapper entry will store the password in the credential
+wrapped by that entry.
+Getting a password will read the it from the wrapped credential.
+
+There are two APIs for creating entries that are wrappers:
+
+* [Entry::new_with_credential] takes an existing store-specific credential object
+  and wraps an entry around it. This is useful when you want to use the keyring API
+  to manage credentials created or retrieved by store-specific code in your application.
+
+* [Entry::search_for_credentials] takes a store-specific search specification
+  and returns entries wrapping each of the existing credentials in the store
+  that match the search.
+  This is useful when you want to use the keyring API to manage credentials
+  that were created by other applications.
+
+Wrappers can be indispensable when you need to
+operate on a particular credential.
+But most keychain clients will only need them
+if non-keychain clients are creating conflicting credentials
+in a credential store (see [Ambiguity](#Ambiguity) below).
+
+### Specifiers vs. Wrappers
+
+From an API point of view, the difference between specifiers and wrappers
+is in the error conditions that can arise when setting or getting passwords.
+
+* When you set a password on a specifier entry, you can never receive
+  a [NoEntry][Error::NoEntry] error response because, if there is no
+  credential matching the specification, the store will create one.
+* When you retrieve a password from a wrapper entry, you can never
+  receive an [Ambiguous][Error::Ambiguous] response (described [below](#Ambiguity)),
+  because the entry identifies a specific credential from which to
+  retrieve the password.
+
+An entry can be both a specifier and a wrapper simultaneously; that is, it may
+both identify an existing credential and specify how to create that credential
+if it doesn't exist. To see this, consider a credential store (such as the
+Windows Credential Manager) that identifies credentials using a specific
+attribute, and allows clients to specify that attribute when creating a
+credential. Suppose the credential store implementation uses a particular
+combination of the specifier's `service` and `user` strings as the identifier
+for the specified credential. The combined string both acts as a
+specifier for the credential to create and an identifier for an existing
+credential. Thus, an entry containing that string is both a specifier and a
+wrapper.
+
+If you have a specifier entry you've created and set a password for,
+and you want to get a wrapper for that entry's associated credential,
+you can call [Entry::get_credential] on that entry.
+
+## Ambiguity
 
 The service name, username, and modifiers used when a specifier
 entry is created are interpreted by the store to specify a credential
@@ -137,7 +158,7 @@ Secret Service store that agree on those attributes but differ
 on other attributes and, in
 such a case, all those items will match the entry's specification.
 
-Since a single credential store will never create multiple
+Since a keychain client will never create multiple
 different credentials for a single specification, the usual source
 of ambiguity in a credential store is the presence of credentials
 written by non-keyring clients. The keyring API
@@ -147,7 +168,7 @@ interoperate with these other clients.
 Not all credential stores allow ambiguity. Check the documentation
 for each credential store to find out whether it does.
 
-### Credential Attributes
+## Attributes
 
 Most credential stores, in addition to storing secrets in credentials,
 allow them to be decorated with additional information. The keyring
@@ -255,7 +276,7 @@ fn build_default_credential(
 
 #[derive(Debug)]
 pub struct Entry {
-    inner: Box<Credential>,
+    inner: Arc<Credential>,
 }
 
 impl Entry {
@@ -318,7 +339,7 @@ impl Entry {
 
     /// Create an entry that wraps a pre-existing credential. The credential can
     /// be from any credential store.
-    pub fn new_with_credential(credential: Box<Credential>) -> Entry {
+    pub fn new_with_credential(credential: Arc<Credential>) -> Entry {
         debug!("create entry wrapping {credential:?}");
         Entry { inner: credential }
     }
@@ -485,12 +506,32 @@ impl Entry {
         self.inner.delete_credential()
     }
 
-    /// Return a reference to this entry's credential object.
+    /// Get a wrapper for the currently matching credential.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [NoEntry](Error::NoEntry) error if there is no
+    /// matching credential.
+    ///
+    /// Returns an [Ambiguous](Error::Ambiguous) error
+    /// if there is more than one matching credential.
+    pub fn get_credential(&self) -> Result<Entry> {
+        debug!("get credential for entry {:?}", self.inner);
+        match self.inner.get_credential() {
+            Ok(Some(inner)) => Ok(Entry { inner }),
+            Ok(None) => Ok(Entry {
+                inner: self.inner.clone(),
+            }),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Return a reference to the concrete credential object in this entry.
     ///
     /// The reference is of the [Any](std::any::Any) type, so it can be
     /// downgraded to a concrete credential object for the
     /// containing store.
-    pub fn get_credential(&self) -> &dyn std::any::Any {
+    pub fn as_credential(&self) -> &dyn std::any::Any {
         self.inner.as_any()
     }
 }
