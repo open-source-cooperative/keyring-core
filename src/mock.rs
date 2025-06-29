@@ -502,7 +502,7 @@ mod tests {
         let store: Arc<CredentialStore> = Store::new();
         match store.search(&HashMap::new()) {
             Err(Error::NotSupportedByStore(vendor)) if vendor == store.vendor() => (),
-            other => panic!("Unexpected value from search: {:?}", other),
+            other => panic!("Unexpected value from search: {other:?}"),
         }
     }
 

@@ -96,8 +96,7 @@ impl std::fmt::Display for Error {
             Error::NotSupportedByStore(vendor) => {
                 write!(
                     f,
-                    "The requested store (vendor: {}) does not support this operation",
-                    vendor
+                    "The requested store (vendor: {vendor}) does not support this operation",
                 )
             }
         }

@@ -79,12 +79,12 @@ impl std::fmt::Debug for Store {
 impl Drop for Store {
     fn drop(&mut self) {
         if self.backing.is_none() {
-            debug!("dropping store {:?}", self)
+            debug!("dropping store {self:?}")
         } else {
-            debug!("Saving store {:?} on drop...", self);
+            debug!("Saving store {self:?} on drop...");
             match self.save() {
-                Ok(_) => debug!("Save of store {:?} completed", self),
-                Err(e) => error!("Save of store {:?} failed: {:?}", self, e),
+                Ok(_) => debug!("Save of store {self:?} completed"),
+                Err(e) => error!("Save of store {self:?} failed: {e:?}"),
             }
         }
     }
@@ -148,7 +148,7 @@ impl Store {
             creds,
             backing,
         });
-        debug!("Created new store: {:?}", store);
+        debug!("Created new store: {store:?}");
         guard.push(Arc::downgrade(&store));
         store
     }

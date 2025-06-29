@@ -235,7 +235,7 @@ static DEFAULT_STORE: std::sync::RwLock<DefaultStore> =
 /// to complete what they are doing. It's really meant to be called
 /// at app startup before you start creating entries.
 pub fn set_default_store(new: Arc<CredentialStore>) {
-    debug!("setting default credential store to {:?}", new);
+    debug!("setting default credential store to {new:?}");
     let mut guard = DEFAULT_STORE
         .write()
         .expect("Poisoned RwLock in keyring_core::set_default_store: please report a bug!");
