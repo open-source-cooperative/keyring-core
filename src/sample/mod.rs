@@ -31,21 +31,13 @@ This store supports ambiguity, that is, the ability to create
 multiple credentials associated with the same service name
 and username. If you specify the `target` modifier when
 creating an entry, a new credential with an empty password
-will be created immediately
-for the specified service name and username,
-and this newly created credential may or may not
-be _ambiguous_ (that is, an additional credential
-associated with the same service name and username):
+will be created immediately for the specified service name and username.
 
 * If there was _not_ an existing credential for your service name
   and username, then the newly-created credential will be the
-  only one, so the returned entry will be a specifier
-  (as well as a wrapper) for that credential.
+  only one, so the returned entry will not be ambiguous.
 * If there _was_ an existing credential for your service name and username,
-  then the newly-created credential is ambiguous, so
-  the returned entry will _not_ be a specifier,
-  but it will wrap the newly-created (ambiguous) credential
-  so it can be used to set and read its password.
+  then the returned entry will be ambiguous.
 
 In all cases, the use of the `target` modifier will cause
 the created credential to have two additional attributes:
@@ -59,18 +51,23 @@ the created credential to have two additional attributes:
 
 # Attributes
 
-Credentials in this store don't have attributes other than those
-described in the section on Ambiguity above.
+Credentials in this store, in addition to the attributes
+described in the section on Ambiguity above, have
+a single read-only attribute `uuid` which is the
+unique ID of the credential in the store.
 
 # Search
 
-This store implements search using regular expression values
-for the `service` and `user` attributes of the credential ID.
-Both `service` and `user` expressions must be specified in the spec,
-and no other keys are allowed. The match performed is a substring
-match (so an empty expression matches all values). Both the
-service name and username of a credential must match
-the spec for that credential to be returned from the search.
+This store implements credential search. Specs can specify
+desired regular expressions for the `service` and `user` a
+credential is attached to, and for the `comment` and `uuid` attributes
+of the credential itself. (All other key/value pairs in the spec
+are ignored.) Credentials are returned only if _all_ the
+specified regular expressions match against its values.
+
+Note: Search is implemented by iterating over every credential
+in the store. This is an in-memory store, so it happens
+pretty quickly.
 
  */
 

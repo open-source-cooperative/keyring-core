@@ -182,13 +182,18 @@ fn test_get_update_attributes() {
     let attrs = entry1
         .get_attributes()
         .expect("Can't get entry1 attributes");
-    assert_eq!(attrs.len(), 0);
+    assert_eq!(attrs.len(), 1); // uuid
     let no_op_map = HashMap::from([("foo", "bar")]);
-    let forbidden_map = HashMap::from([("creation_date", "doesn't matter")]);
+    let forbidden_map1 = HashMap::from([("creation_date", "doesn't matter")]);
+    let forbidden_map2 = HashMap::from([("uuid", "doesn't matter")]);
     let comment_map = HashMap::from([("comment", "some comment")]);
     assert!(matches!(entry1.update_attributes(&no_op_map), Ok(())));
     assert!(matches!(
-        entry1.update_attributes(&forbidden_map),
+        entry1.update_attributes(&forbidden_map1),
+        Err(Error::Invalid(_, _))
+    ));
+    assert!(matches!(
+        entry1.update_attributes(&forbidden_map2),
         Err(Error::Invalid(_, _))
     ));
     entry1
@@ -211,7 +216,7 @@ fn test_get_update_attributes() {
     let attrs = entry2
         .get_attributes()
         .expect("Can't get entry2 attributes");
-    assert_eq!(attrs.len(), 2);
+    assert_eq!(attrs.len(), 3); // uuid, creation date, comment
     assert_eq!(attrs.get("comment").unwrap(), "entry2");
     assert!(attrs.contains_key("creation_date"));
     entry2
@@ -555,22 +560,10 @@ fn test_simultaneous_multiple_create_delete_single_thread() {
 #[test]
 fn test_search() {
     let store: Arc<CredentialStore> = Store::new();
-    assert!(matches!(
-        store.search(&HashMap::from([
-            ("service", "foo"),
-            ("user", "bar"),
-            ("baz", "bam")
-        ])),
-        Err(Error::Invalid(_, _))
-    ));
-    assert!(matches!(
-        store.search(&HashMap::from([("service", "foo")])),
-        Err(Error::Invalid(_, _))
-    ));
-    assert!(matches!(
-        store.search(&HashMap::from([("user", "foo")])),
-        Err(Error::Invalid(_, _))
-    ));
+    let all = store
+        .search(&HashMap::from([]))
+        .expect("Search with empty spec failed");
+    assert!(all.is_empty());
     let all = store
         .search(&HashMap::from([("service", ""), ("user", "")]))
         .expect("Search for empty values failed");
@@ -581,6 +574,10 @@ fn test_search() {
     e1.set_password("e1")
         .expect("Failed to set password for e1");
     let all = store
+        .search(&HashMap::from([]))
+        .expect("Search for empty spec failed");
+    assert_eq!(all.len(), 1, "Should have found all entries (just foo/bar)");
+    let all = store
         .search(&HashMap::from([("service", ""), ("user", "")]))
         .expect("Search for empty values failed");
     assert_eq!(all.len(), 1, "Should have found all entries (just foo/bar)");
@@ -590,7 +587,7 @@ fn test_search() {
     e2.set_password("e2")
         .expect("Failed to set password for e2");
     let one = store
-        .search(&HashMap::from([("service", ""), ("user", "m")]))
+        .search(&HashMap::from([("user", "m")]))
         .expect("Search for one value failed");
     assert_eq!(one.len(), 1, "Should have found one entry (foo/bam)");
     _ = store
@@ -600,18 +597,24 @@ fn test_search() {
             Some(&HashMap::from([("target", "foo bar again")])),
         )
         .expect("Failed to build ambiguous foo/bar");
+    let one = store.search(&HashMap::from([("comment", ".+")]))
+        .expect("Search for one value failed");
+    assert_eq!(one.len(), 1, "Should have found one entry (foo bar again)");
+    let uuid = one.first().unwrap().get_attributes().unwrap().get("uuid").unwrap().clone();
+    let one = store.search(&HashMap::from([("uuid", uuid.as_str())]))
+        .expect("Search for one value failed");
+    assert_eq!(one.len(), 1, "Should have found one entry");
     let two = store
         .search(&HashMap::from([("service", "foo"), ("user", "bar")]))
         .expect("Search for two values failed");
     assert_eq!(two.len(), 2, "Should have found two entries (foo/bar both)");
     let three = store
-        .search(&HashMap::from([("service", "foo"), ("user", "")]))
+        .search(&HashMap::from([("service", "foo")]))
         .expect("Search for three values failed");
-    assert_eq!(
-        three.len(),
-        3,
-        "Should have found three entries (service foo)"
-    );
+    assert_eq!(three.len(), 3, "Should have found three entries (service foo)");
+    let all = store.search(&HashMap::from([("foo", "bar")]))
+        .expect("Search for all values with irrelevant attribute failed");
+    assert_eq!(all.len(), 3, "Should have found three entries (all in store)");
 }
 
 #[test]

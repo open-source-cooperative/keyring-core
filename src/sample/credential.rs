@@ -140,7 +140,7 @@ impl CredentialApi for CredKey {
     /// The only attributes on credentials in this store are `comment`
     /// and `creation_date`.
     fn get_attributes(&self) -> Result<HashMap<String, String>> {
-        self.with_unique_cred(|cred| get_attrs(cred))
+        self.with_unique_pair(|uuid, cred| get_attrs(uuid, cred))
     }
 
     /// See the API docs.
@@ -152,6 +152,12 @@ impl CredentialApi for CredKey {
         if attrs.contains_key("creation_date") {
             return Err(Error::Invalid(
                 "creation_date".to_string(),
+                "cannot be updated".to_string(),
+            ));
+        }
+        if attrs.contains_key("uuid") {
+            return Err(Error::Invalid(
+                "uuid".to_string(),
                 "cannot be updated".to_string(),
             ));
         }
@@ -212,8 +218,9 @@ impl CredentialApi for CredKey {
 /// get the attributes on a credential
 ///
 /// This is a helper function used by get_attributes
-pub fn get_attrs(cred: &CredValue) -> HashMap<String, String> {
+pub fn get_attrs(uuid: &str, cred: &CredValue) -> HashMap<String, String> {
     let mut attrs = HashMap::new();
+    attrs.insert("uuid".to_string(), uuid.to_string());
     if cred.creation_date.is_some() {
         attrs.insert(
             "creation_date".to_string(),

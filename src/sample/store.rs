@@ -2,6 +2,11 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 
+use dashmap::DashMap;
+use log::{debug, error};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
 use super::credential::{CredId, CredKey};
 use crate::{
     Credential,
@@ -9,10 +14,6 @@ use crate::{
     Result,
     api::{CredentialPersistence, CredentialStoreApi},
 };
-use dashmap::DashMap;
-use log::{debug, error};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// The stored data for a credential
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,12 +58,12 @@ static STORES: RwLock<Vec<Weak<Store>>> = RwLock::new(Vec::new());
 
 /// A credential store.
 ///
-/// The credential data is kept in the CredMap.
+/// The credential data is kept in the CredMap. We keep the index of
+/// ourself in the STORES vector, so we can get a pointer to ourself
+/// whenever we need to build a credential.
 pub struct Store {
     pub index: usize,
-    /// index into the STORES vector
     pub creds: CredMap,
-    /// the credential store data
     pub backing: Option<String>, // the backing file, if any
 }
 
@@ -244,30 +245,22 @@ impl CredentialStoreApi for Store {
     /// (The match is a substring match, so the empty string will match every value.)
     fn search(&self, spec: &HashMap<&str, &str>) -> Result<Vec<Arc<Credential>>> {
         let mut result: Vec<Arc<Credential>> = Vec::new();
-        let svc = regex::Regex::new(
-            spec.get("service")
-                .ok_or_else(|| Invalid("service".to_string(), "must be specified".to_string()))?,
-        )
-        .map_err(|e| Invalid("service regex".to_string(), e.to_string()))?;
-        let usr = regex::Regex::new(
-            spec.get("user")
-                .ok_or_else(|| Invalid("user".to_string(), "must be specified".to_string()))?,
-        )
-        .map_err(|e| Invalid("user regex".to_string(), e.to_string()))?;
-        if spec.len() != 2 {
-            return Err(Invalid(
-                "spec".to_string(),
-                "must only have service and entry".to_string(),
-            ));
-        }
+        let svc = regex::Regex::new(spec.get("service").unwrap_or(&""))
+            .map_err(|e| Invalid("service regex".to_string(), e.to_string()))?;
+        let usr = regex::Regex::new(spec.get("user").unwrap_or(&""))
+            .map_err(|e| Invalid("user regex".to_string(), e.to_string()))?;
+        let comment = regex::Regex::new(spec.get("uuid").unwrap_or(&""))
+            .map_err(|e| Invalid("comment regex".to_string(), e.to_string()))?;
+        let uuid = regex::Regex::new(spec.get("uuid").unwrap_or(&""))
+            .map_err(|e| Invalid("uuid regex".to_string(), e.to_string()))?;
         let guard = STORES
             .read()
             .expect("Poisoned RwLock at credential creation: report a bug!");
         let store = guard
             .get(self.index)
-            .expect("Missing weak ref at credential creation: report a bug!")
+            .expect("Missing weak ref at credential search: report a bug!")
             .upgrade()
-            .expect("Missing store at credential creation: report a bug!");
+            .expect("Missing store at credential search: report a bug!");
         for pair in self.creds.iter() {
             if !svc.is_match(pair.key().service.as_str()) {
                 continue;
@@ -276,6 +269,17 @@ impl CredentialStoreApi for Store {
                 continue;
             }
             for cred in pair.value().iter() {
+                if !uuid.is_match(cred.key()) {
+                    continue;
+                }
+                if spec.get("comment").is_some() {
+                    if cred.value().comment.is_none() {
+                        continue;
+                    }
+                    if !comment.is_match(cred.value().comment.as_ref().unwrap()) {
+                        continue;
+                    }
+                }
                 result.push(Arc::new(CredKey {
                     store: store.clone(),
                     id: pair.key().clone(),
