@@ -1,7 +1,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 /*!
 
-# Keyring
+# Keyring-core
 
 This crate provides a cross-platform library that supports storage and retrieval
 of passwords (or other secrets) in a variety of secure credential stores.
