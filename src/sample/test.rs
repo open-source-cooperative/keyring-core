@@ -597,11 +597,20 @@ fn test_search() {
             Some(&HashMap::from([("target", "foo bar again")])),
         )
         .expect("Failed to build ambiguous foo/bar");
-    let one = store.search(&HashMap::from([("comment", ".+")]))
+    let one = store
+        .search(&HashMap::from([("comment", ".+")]))
         .expect("Search for one value failed");
     assert_eq!(one.len(), 1, "Should have found one entry (foo bar again)");
-    let uuid = one.first().unwrap().get_attributes().unwrap().get("uuid").unwrap().clone();
-    let one = store.search(&HashMap::from([("uuid", uuid.as_str())]))
+    let uuid = one
+        .first()
+        .unwrap()
+        .get_attributes()
+        .unwrap()
+        .get("uuid")
+        .unwrap()
+        .clone();
+    let one = store
+        .search(&HashMap::from([("uuid", uuid.as_str())]))
         .expect("Search for one value failed");
     assert_eq!(one.len(), 1, "Should have found one entry");
     let two = store
@@ -611,10 +620,19 @@ fn test_search() {
     let three = store
         .search(&HashMap::from([("service", "foo")]))
         .expect("Search for three values failed");
-    assert_eq!(three.len(), 3, "Should have found three entries (service foo)");
-    let all = store.search(&HashMap::from([("foo", "bar")]))
+    assert_eq!(
+        three.len(),
+        3,
+        "Should have found three entries (service foo)"
+    );
+    let all = store
+        .search(&HashMap::from([("foo", "bar")]))
         .expect("Search for all values with irrelevant attribute failed");
-    assert_eq!(all.len(), 3, "Should have found three entries (all in store)");
+    assert_eq!(
+        all.len(),
+        3,
+        "Should have found three entries (all in store)"
+    );
 }
 
 #[test]
