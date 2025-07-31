@@ -240,6 +240,33 @@ impl CredentialStoreApi for Store {
         Ok(Entry { inner: cred })
     }
 
+    /// Search for mock credentials matching the spec.
+    ///
+    /// Attributes other than `service` and `user` are ignored.
+    /// Their values are used in unanchored substring searches against the specifier.
+    fn search(&self, spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
+        let mut result: Vec<Entry> = Vec::new();
+        let svc = spec.get("service").unwrap_or(&"");
+        let usr = spec.get("user").unwrap_or(&"");
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("Can't access mock store data: please report a bug!");
+        let creds = inner.get_mut();
+        for cred in creds.iter() {
+            if !cred.specifiers.0.as_str().contains(svc) {
+                continue;
+            }
+            if !cred.specifiers.1.as_str().contains(usr) {
+                continue;
+            }
+            result.push(Entry {
+                inner: cred.clone(),
+            });
+        }
+        Ok(result)
+    }
+
     /// Get an [Any][std::any::Any] reference to the mock credential builder.
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -475,10 +502,32 @@ mod tests {
     #[test]
     fn test_search() {
         let store: Arc<CredentialStore> = Store::new();
-        match store.search(&HashMap::new()) {
-            Err(Error::NotSupportedByStore(vendor)) if vendor == store.vendor() => (),
-            other => panic!("Unexpected value from search: {other:?}"),
-        }
+        let all = store.search(&HashMap::from([])).unwrap();
+        assert!(all.is_empty());
+        let all = store
+            .search(&HashMap::from([("service", ""), ("user", "")]))
+            .unwrap();
+        assert!(all.is_empty());
+        let e1 = store.build("foo", "bar", None).unwrap();
+        e1.set_password("e1").unwrap();
+        let all = store.search(&HashMap::from([])).unwrap();
+        assert_eq!(all.len(), 1);
+        let all = store
+            .search(&HashMap::from([("service", ""), ("user", "")]))
+            .unwrap();
+        assert_eq!(all.len(), 1);
+        let e2 = store.build("foo", "bam", None).unwrap();
+        e2.set_password("e2").unwrap();
+        let one = store.search(&HashMap::from([("user", "m")])).unwrap();
+        assert_eq!(one.len(), 1);
+        let one = store
+            .search(&HashMap::from([("service", "foo"), ("user", "bar")]))
+            .unwrap();
+        assert_eq!(one.len(), 1);
+        let two = store.search(&HashMap::from([("service", "foo")])).unwrap();
+        assert_eq!(two.len(), 2);
+        let all = store.search(&HashMap::from([("foo", "bar")])).unwrap();
+        assert_eq!(all.len(), 2);
     }
 
     #[test]
