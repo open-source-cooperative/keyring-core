@@ -10,7 +10,7 @@ are integer error codes, this requirement
 is not much of a burden on the platform-specific store providers.)
  */
 
-use crate::Credential;
+use crate::Entry;
 
 #[derive(Debug)]
 /// Each variant of the `Error` enum provides a summary of the error.
@@ -46,14 +46,14 @@ pub enum Error {
     /// attached values give the name of the attribute and
     /// the platform length limit that was exceeded.
     TooLong(String, u32),
-    /// This indicates that one of the entry's required credential
-    /// attributes was invalid.  The
-    /// attached value gives the name of the attribute
-    /// and the reason it's invalid.
+    /// This indicates that one of the parameters passed to the operation
+    /// was invalid. The attached value gives the parameter and
+    /// describes the problem.
     Invalid(String, String),
     /// This indicates that there is more than one credential found in the store
-    /// that matches the entry.  Its value is a vector of the matching credentials.
-    Ambiguous(Vec<Box<Credential>>),
+    /// that matches the entry.  Its value is a vector of entries wrapping
+    /// the matching credentials.
+    Ambiguous(Vec<Entry>),
     /// This indicates that there was no default credential builder to use;
     /// the client must set one before creating entries.
     NoDefaultStore,
@@ -96,8 +96,7 @@ impl std::fmt::Display for Error {
             Error::NotSupportedByStore(vendor) => {
                 write!(
                     f,
-                    "The requested store (vendor: {}) does not support this operation",
-                    vendor
+                    "The requested store (vendor: {vendor}) does not support this operation",
                 )
             }
         }

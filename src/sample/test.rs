@@ -1,13 +1,16 @@
+use super::credential::{CredId, CredKey};
+use super::store::{CredValue, Store};
+use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::{Arc, Once};
-
-use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
+use uuid::Uuid;
 
 static SET_STORE: Once = Once::new();
 
 fn usually_goes_in_main() {
     let _ = env_logger::builder().is_test(true).try_init();
-    crate::set_default_store(super::store::Store::new());
+    crate::set_default_store(Store::new());
 }
 
 fn entry_new(service: &str, user: &str) -> Entry {
@@ -105,10 +108,7 @@ fn test_empty_password() {
 fn test_missing_entry() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
-    assert!(
-        matches!(entry.get_password(), Err(Error::NoEntry)),
-        "Missing entry has password"
-    )
+    assert!(matches!(entry.get_password(), Err(Error::NoEntry)))
 }
 
 #[test]
@@ -123,6 +123,22 @@ fn test_round_trip_non_ascii_password() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
     test_round_trip("non-ascii password", &entry, "このきれいな花は桜です");
+}
+
+#[test]
+fn test_entries_with_same_and_different_specifiers() {
+    let name1 = generate_random_string();
+    let name2 = generate_random_string();
+    let entry1 = entry_new(&name1, &name2);
+    let entry2 = entry_new(&name1, &name2);
+    let entry3 = entry_new(&name2, &name1);
+    entry1.set_password("test password").unwrap();
+    let pw2 = entry2.get_password().unwrap();
+    assert_eq!(pw2, "test password");
+    _ = entry3.get_password().unwrap_err();
+    entry1.delete_credential().unwrap();
+    _ = entry2.get_password().unwrap_err();
+    entry3.delete_credential().unwrap_err();
 }
 
 #[test]
@@ -150,21 +166,13 @@ fn test_duplicate_entries() {
     let name = generate_random_string();
     let entry1 = entry_new(&name, &name);
     let entry2 = entry_new(&name, &name);
-    entry1
-        .set_password("password for entry1")
-        .expect("Can't set password for entry1");
-    let password = entry2
-        .get_password()
-        .expect("Can't get password for entry2");
+    entry1.set_password("password for entry1").unwrap();
+    let password = entry2.get_password().unwrap();
     assert_eq!(password, "password for entry1");
-    entry2
-        .set_password("password for entry2")
-        .expect("Can't set password for entry2");
-    let password = entry1
-        .get_password()
-        .expect("Can't get password for entry1");
+    entry2.set_password("password for entry2").unwrap();
+    let password = entry1.get_password().unwrap();
     assert_eq!(password, "password for entry2");
-    entry1.delete_credential().expect("Can't delete entry1");
+    entry1.delete_credential().unwrap();
     entry2.delete_credential().expect_err("Can delete entry2");
 }
 
@@ -173,98 +181,164 @@ fn test_get_update_attributes() {
     let name = generate_random_string();
     let entry1 = entry_new(&name, &name);
     assert!(matches!(entry1.get_attributes(), Err(Error::NoEntry)));
-    entry1
-        .set_password("password for entry1")
-        .expect("Can't set password for entry1");
-    let attrs = entry1
-        .get_attributes()
-        .expect("Can't get entry1 attributes");
-    assert_eq!(attrs.len(), 0);
+    entry1.set_password("password for entry1").unwrap();
+    let attrs = entry1.get_attributes().unwrap();
+    assert_eq!(attrs.len(), 1); // uuid
     let no_op_map = HashMap::from([("foo", "bar")]);
-    let forbidden_map = HashMap::from([("creation_date", "doesn't matter")]);
+    let forbidden_map1 = HashMap::from([("creation_date", "doesn't matter")]);
+    let forbidden_map2 = HashMap::from([("uuid", "doesn't matter")]);
     let comment_map = HashMap::from([("comment", "some comment")]);
     assert!(matches!(entry1.update_attributes(&no_op_map), Ok(())));
     assert!(matches!(
-        entry1.update_attributes(&forbidden_map),
+        entry1.update_attributes(&forbidden_map1),
         Err(Error::Invalid(_, _))
     ));
-    entry1
-        .update_attributes(&comment_map)
-        .expect("Can't update attributes for entry1");
+    assert!(matches!(
+        entry1.update_attributes(&forbidden_map2),
+        Err(Error::Invalid(_, _))
+    ));
+    entry1.update_attributes(&comment_map).unwrap();
     assert_eq!(
-        entry1
-            .get_attributes()
-            .expect("Can't get attributes for entry1")
-            .get("comment")
-            .expect("No comment on entry1"),
+        entry1.get_attributes().unwrap().get("comment").unwrap(),
         "some comment"
     );
+    entry1.delete_credential().unwrap();
     let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry2")]));
-    assert_eq!(
-        entry2.get_password().expect("Can't get entry2 password"),
-        ""
-    );
-    let attrs = entry2
-        .get_attributes()
-        .expect("Can't get entry2 attributes");
-    assert_eq!(attrs.len(), 2);
+    assert_eq!(entry2.get_password().unwrap(), "");
+    let attrs = entry2.get_attributes().unwrap();
+    assert_eq!(attrs.len(), 3); // uuid, creation date, comment
     assert_eq!(attrs.get("comment").unwrap(), "entry2");
     assert!(attrs.contains_key("creation_date"));
-    entry2
-        .update_attributes(&comment_map)
-        .expect("Can't update attributes for entry1");
+    entry2.update_attributes(&comment_map).unwrap();
     assert_eq!(
-        entry2
-            .get_attributes()
-            .expect("Can't get attributes for entry2")
-            .get("comment")
-            .expect("No comment on entry2"),
+        entry2.get_attributes().unwrap().get("comment").unwrap(),
         "some comment"
     );
-    entry1.delete_credential().expect("Can't delete entry1");
-    entry2.delete_credential().expect("Can't delete entry2");
+    entry2.delete_credential().unwrap();
+}
+
+#[test]
+fn test_get_credential_and_specifiers() {
+    let name = generate_random_string();
+    let entry1 = entry_new(&name, &name);
+    assert!(matches!(entry1.get_credential(), Err(Error::NoEntry)));
+    entry1.set_password("password for entry1").unwrap();
+    let wrapper = entry1.get_credential().unwrap();
+    let cred = wrapper.as_any().downcast_ref::<CredKey>().unwrap();
+    assert!(cred.uuid.is_some());
+    let (service, user) = wrapper.get_specifiers().unwrap();
+    assert_eq!(service, name);
+    assert_eq!(user, name);
+    wrapper.delete_credential().unwrap();
+    entry1.delete_credential().unwrap_err();
+    wrapper.delete_credential().unwrap_err();
+}
+
+#[test]
+fn test_with_unique_credential_helper() {
+    let store: Arc<Store> = Store::new();
+    // test NoEntry
+    {
+        let name = generate_random_string();
+        let id = CredId {
+            service: name.clone(),
+            user: name.clone(),
+        };
+        let spec = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: None,
+        };
+        assert!(matches!(spec.with_unique_cred(|_| ()), Err(Error::NoEntry),));
+        let wrapper = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: Some(Uuid::new_v4().to_string()),
+        };
+        assert!(matches!(
+            wrapper.with_unique_cred(|_| ()),
+            Err(Error::NoEntry),
+        ));
+    }
+    // test ambiguity
+    {
+        let name = generate_random_string();
+        let id = CredId {
+            service: name.clone(),
+            user: name.clone(),
+        };
+        let spec = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: None,
+        };
+        let uuid1 = Uuid::new_v4().to_string();
+        let uuid2 = Uuid::new_v4().to_string();
+        let wrapper1 = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: Some(uuid1.clone()),
+        };
+        let wrapper2 = CredKey {
+            store: store.clone(),
+            id: id.clone(),
+            uuid: Some(uuid2.clone()),
+        };
+        let creds = DashMap::new();
+        creds.insert(uuid1.clone(), CredValue::new(&[1u8, 2u8]));
+        creds.insert(uuid2.clone(), CredValue::new(&[2u8, 2u8]));
+        store.creds.insert(id.clone(), creds);
+        assert!(matches!(
+            wrapper1.with_unique_cred(|cred| cred.secret[0]),
+            Ok(1u8),
+        ));
+        assert!(matches!(
+            wrapper2.with_unique_cred(|cred| cred.secret[0]),
+            Ok(2u8),
+        ));
+        assert!(matches!(
+            spec.with_unique_cred(|cred| cred.secret[0]),
+            Err(Error::Ambiguous(_)),
+        ))
+    }
 }
 
 #[test]
 fn test_credential_and_ambiguous_credential() {
     let name = generate_random_string();
     let entry1 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry1")]));
-    assert!(entry1.is_specifier(), "entry1 is not a specifier");
-    entry1
-        .set_password("password for entry1")
-        .expect("Can't set password for entry1");
-    let credential1: &super::credential::CredKey = entry1
-        .get_credential()
-        .downcast_ref()
-        .expect("Not a sample store credential");
-    assert_eq!(credential1.cred_index, 0, "entry1 index should be 0");
+    entry1.set_password("password for entry1").unwrap();
+    let credential1: &CredKey = entry1.as_any().downcast_ref().unwrap();
+    assert!(credential1.uuid.is_none());
     let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry2")]));
-    assert!(!entry2.is_specifier(), "entry2 is a specifier");
-    entry2
-        .set_password("password for entry2")
-        .expect("Can't set password for entry2");
-    let credential2: &super::credential::CredKey = entry2
-        .get_credential()
-        .downcast_ref()
-        .expect("Not a sample store credential");
-    assert_eq!(credential2.cred_index, 1, "entry2 index should be 1");
-    entry2
-        .delete_credential()
-        .expect("Couldn't delete entry2 credential");
-    assert!(matches!(entry2.get_password(), Err(Error::NoEntry)));
-    entry2
-        .set_password("second password for entry2")
-        .expect_err("Can set password after deleting entry2");
-    entry1
-        .delete_credential()
-        .expect("Couldn't delete entry1 credential");
-    entry1
-        .set_password("second password for entry1")
-        .expect("Can't set password after deleting entry1");
-    entry1
-        .delete_credential()
-        .expect("Couldn't delete entry1 credential after resetting password");
-    assert!(matches!(entry1.get_password(), Err(Error::NoEntry)));
+    let credential2: &CredKey = entry2.as_any().downcast_ref().unwrap();
+    assert!(credential2.uuid.is_none());
+    let err1 = entry1.set_password("password for entry1");
+    let Err(Error::Ambiguous(entries1)) = err1 else {
+        panic!("not an ambiguous error")
+    };
+    let err2 = entry2.set_password("password for entry2");
+    let Err(Error::Ambiguous(entries2)) = err2 else {
+        panic!("not an ambiguous error")
+    };
+    assert_eq!(entries1.len(), 2);
+    assert_eq!(entries2.len(), 2);
+    let amb1: &CredKey = entries1[0].as_any().downcast_ref().unwrap();
+    let amb2: &CredKey = entries1[1].as_any().downcast_ref().unwrap();
+    assert_ne!(amb1.uuid.as_ref().unwrap(), amb2.uuid.as_ref().unwrap());
+    assert!(matches!(
+        entry2.delete_credential(),
+        Err(Error::Ambiguous(_))
+    ));
+    entries1[0].delete_credential().unwrap();
+    entry2.set_password("second password for entry2").unwrap();
+    entry1.delete_credential().unwrap();
+    entry1.set_password("second password for entry1").unwrap();
+    let cred1: &CredKey = entry1.as_any().downcast_ref().unwrap();
+    // make sure we got a new UUID after deleting and remaking credential
+    assert_ne!(amb1.uuid.as_ref().unwrap(), &cred1.get_uuid().unwrap());
+    assert_ne!(amb2.uuid.as_ref().unwrap(), &cred1.get_uuid().unwrap());
+    entry1.delete_credential().unwrap();
 }
 
 #[test]
@@ -273,30 +347,15 @@ fn test_create_then_move() {
     let entry = entry_new(&name, &name);
     let test = move || {
         let password = "test ascii password";
-        entry
-            .set_password(password)
-            .expect("Can't set initial ascii password");
-        let stored_password = entry.get_password().expect("Can't get ascii password");
-        assert_eq!(
-            stored_password, password,
-            "Retrieved and set initial ascii passwords don't match"
-        );
+        entry.set_password(password).unwrap();
+        let stored_password = entry.get_password().unwrap();
+        assert_eq!(stored_password, password);
         let password = "このきれいな花は桜です";
-        entry
-            .set_password(password)
-            .expect("Can't set non-ascii password");
-        let stored_password = entry.get_password().expect("Can't get non-ascii password");
-        assert_eq!(
-            stored_password, password,
-            "Retrieved and set non-ascii passwords don't match"
-        );
-        entry
-            .delete_credential()
-            .expect("Can't delete non-ascii password");
-        assert!(
-            matches!(entry.get_password(), Err(Error::NoEntry)),
-            "Able to read a deleted non-ascii password"
-        );
+        entry.set_password(password).unwrap();
+        let stored_password = entry.get_password().unwrap();
+        assert_eq!(stored_password, password);
+        entry.delete_credential().unwrap();
+        assert!(matches!(entry.get_password(), Err(Error::NoEntry)));
     };
     let handle = std::thread::spawn(test);
     assert!(handle.join().is_ok(), "Couldn't execute on thread")
@@ -309,24 +368,16 @@ fn test_simultaneous_create_then_move() {
         let name = format!("{}-{}", generate_random_string(), i);
         let entry = entry_new(&name, &name);
         let test = move || {
-            entry.set_password(&name).expect("Can't set ascii password");
-            let stored_password = entry.get_password().expect("Can't get ascii password");
-            assert_eq!(
-                stored_password, name,
-                "Retrieved and set ascii passwords don't match"
-            );
-            entry
-                .delete_credential()
-                .expect("Can't delete ascii password");
-            assert!(
-                matches!(entry.get_password(), Err(Error::NoEntry)),
-                "Able to read a deleted ascii password"
-            );
+            entry.set_password(&name).unwrap();
+            let stored_password = entry.get_password().unwrap();
+            assert_eq!(stored_password, name);
+            entry.delete_credential().unwrap();
+            assert!(matches!(entry.get_password(), Err(Error::NoEntry)));
         };
         handles.push(std::thread::spawn(test))
     }
     for handle in handles {
-        handle.join().expect("Couldn't execute on thread")
+        handle.join().unwrap()
     }
 }
 
@@ -335,22 +386,12 @@ fn test_create_set_then_move() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
     let password = "test ascii password";
-    entry
-        .set_password(password)
-        .expect("Can't set ascii password");
+    entry.set_password(password).unwrap();
     let test = move || {
-        let stored_password = entry.get_password().expect("Can't get ascii password");
-        assert_eq!(
-            stored_password, password,
-            "Retrieved and set ascii passwords don't match"
-        );
-        entry
-            .delete_credential()
-            .expect("Can't delete ascii password");
-        assert!(
-            matches!(entry.get_password(), Err(Error::NoEntry)),
-            "Able to read a deleted ascii password"
-        );
+        let stored_password = entry.get_password().unwrap();
+        assert_eq!(stored_password, password);
+        entry.delete_credential().unwrap();
+        assert!(matches!(entry.get_password(), Err(Error::NoEntry)));
     };
     let handle = std::thread::spawn(test);
     assert!(handle.join().is_ok(), "Couldn't execute on thread")
@@ -362,25 +403,17 @@ fn test_simultaneous_create_set_then_move() {
     for i in 0..10 {
         let name = format!("{}-{}", generate_random_string(), i);
         let entry = entry_new(&name, &name);
-        entry.set_password(&name).expect("Can't set ascii password");
+        entry.set_password(&name).unwrap();
         let test = move || {
-            let stored_password = entry.get_password().expect("Can't get ascii password");
-            assert_eq!(
-                stored_password, name,
-                "Retrieved and set ascii passwords don't match"
-            );
-            entry
-                .delete_credential()
-                .expect("Can't delete ascii password");
-            assert!(
-                matches!(entry.get_password(), Err(Error::NoEntry)),
-                "Able to read a deleted ascii password"
-            );
+            let stored_password = entry.get_password().unwrap();
+            assert_eq!(stored_password, name);
+            entry.delete_credential().unwrap();
+            assert!(matches!(entry.get_password(), Err(Error::NoEntry)));
         };
         handles.push(std::thread::spawn(test))
     }
     for handle in handles {
-        handle.join().expect("Couldn't execute on thread")
+        handle.join().unwrap()
     }
 }
 
@@ -391,24 +424,16 @@ fn test_simultaneous_independent_create_set() {
         let name = format!("thread_entry{i}");
         let test = move || {
             let entry = entry_new(&name, &name);
-            entry.set_password(&name).expect("Can't set ascii password");
-            let stored_password = entry.get_password().expect("Can't get ascii password");
-            assert_eq!(
-                stored_password, name,
-                "Retrieved and set ascii passwords don't match"
-            );
-            entry
-                .delete_credential()
-                .expect("Can't delete ascii password");
-            assert!(
-                matches!(entry.get_password(), Err(Error::NoEntry)),
-                "Able to read a deleted ascii password"
-            );
+            entry.set_password(&name).unwrap();
+            let stored_password = entry.get_password().unwrap();
+            assert_eq!(stored_password, name);
+            entry.delete_credential().unwrap();
+            assert!(matches!(entry.get_password(), Err(Error::NoEntry)));
         };
         handles.push(std::thread::spawn(test))
     }
     for handle in handles {
-        handle.join().expect("Couldn't execute on thread")
+        handle.join().unwrap()
     }
 }
 
@@ -418,19 +443,11 @@ fn test_multiple_create_delete_single_thread() {
     let entry = entry_new(&name, &name);
     let repeats = 10;
     for _i in 0..repeats {
-        entry.set_password(&name).expect("Can't set ascii password");
-        let stored_password = entry.get_password().expect("Can't get ascii password");
-        assert_eq!(
-            stored_password, name,
-            "Retrieved and set ascii passwords don't match"
-        );
-        entry
-            .delete_credential()
-            .expect("Can't delete ascii password");
-        assert!(
-            matches!(entry.get_password(), Err(Error::NoEntry)),
-            "Able to read a deleted ascii password"
-        );
+        entry.set_password(&name).unwrap();
+        let stored_password = entry.get_password().unwrap();
+        assert_eq!(stored_password, name);
+        entry.delete_credential().unwrap();
+        assert!(matches!(entry.get_password(), Err(Error::NoEntry)));
     }
 }
 
@@ -444,93 +461,75 @@ fn test_simultaneous_multiple_create_delete_single_thread() {
             let entry = entry_new(&name, &name);
             let repeats = 10;
             for _i in 0..repeats {
-                entry.set_password(&name).expect("Can't set ascii password");
-                let stored_password = entry.get_password().expect("Can't get ascii password");
-                assert_eq!(
-                    stored_password, name,
-                    "Retrieved and set ascii passwords don't match"
-                );
-                entry
-                    .delete_credential()
-                    .expect("Can't delete ascii password");
-                assert!(
-                    matches!(entry.get_password(), Err(Error::NoEntry)),
-                    "Able to read a deleted ascii password"
-                );
+                entry.set_password(&name).unwrap();
+                let stored_password = entry.get_password().unwrap();
+                assert_eq!(stored_password, name);
+                entry.delete_credential().unwrap();
+                assert!(matches!(entry.get_password(), Err(Error::NoEntry)));
             }
         };
         handles.push(std::thread::spawn(test))
     }
     for handle in handles {
-        handle.join().expect("Couldn't execute on thread")
+        handle.join().unwrap()
     }
 }
 
 #[test]
 fn test_search() {
-    let store: Arc<CredentialStore> = super::store::Store::new();
-    assert!(matches!(
-        store.search(&HashMap::from([
-            ("service", "foo"),
-            ("user", "bar"),
-            ("baz", "bam")
-        ])),
-        Err(Error::Invalid(_, _))
-    ));
-    assert!(matches!(
-        store.search(&HashMap::from([("service", "foo")])),
-        Err(Error::Invalid(_, _))
-    ));
-    assert!(matches!(
-        store.search(&HashMap::from([("user", "foo")])),
-        Err(Error::Invalid(_, _))
-    ));
-    let all = store
-        .search(&HashMap::from([("service", ""), ("user", "")]))
-        .expect("Search for empty values failed");
+    let store: Arc<CredentialStore> = Store::new();
+    let all = store.search(&HashMap::from([])).unwrap();
     assert!(all.is_empty());
-    let e1 = store
-        .build("foo", "bar", None)
-        .expect("Failed to build foo/bar");
-    e1.set_password("e1")
-        .expect("Failed to set password for e1");
     let all = store
         .search(&HashMap::from([("service", ""), ("user", "")]))
-        .expect("Search for empty values failed");
-    assert_eq!(all.len(), 1, "Should have found all entries (just foo/bar)");
-    let e2 = store
-        .build("foo", "bam", None)
-        .expect("Failed to build foo/bam");
-    e2.set_password("e2")
-        .expect("Failed to set password for e2");
-    let one = store
-        .search(&HashMap::from([("service", ""), ("user", "m")]))
-        .expect("Search for one value failed");
-    assert_eq!(one.len(), 1, "Should have found one entry (foo/bam)");
+        .unwrap();
+    assert!(all.is_empty());
+    let e1 = store.build("foo", "bar", None).unwrap();
+    e1.set_password("e1").unwrap();
+    let all = store.search(&HashMap::from([])).unwrap();
+    assert_eq!(all.len(), 1);
+    let all = store
+        .search(&HashMap::from([("service", ""), ("user", "")]))
+        .unwrap();
+    assert_eq!(all.len(), 1);
+    let e2 = store.build("foo", "bam", None).unwrap();
+    e2.set_password("e2").unwrap();
+    let one = store.search(&HashMap::from([("user", "m")])).unwrap();
+    assert_eq!(one.len(), 1);
     _ = store
         .build(
             "foo",
             "bar",
             Some(&HashMap::from([("target", "foo bar again")])),
         )
-        .expect("Failed to build ambiguous foo/bar");
+        .unwrap();
+    let one = store.search(&HashMap::from([("comment", ".+")])).unwrap();
+    assert_eq!(one.len(), 1);
+    let uuid = one
+        .first()
+        .unwrap()
+        .get_attributes()
+        .unwrap()
+        .get("uuid")
+        .unwrap()
+        .clone();
+    let one = store
+        .search(&HashMap::from([("uuid", uuid.as_str())]))
+        .unwrap();
+    assert_eq!(one.len(), 1);
     let two = store
         .search(&HashMap::from([("service", "foo"), ("user", "bar")]))
-        .expect("Search for two values failed");
-    assert_eq!(two.len(), 2, "Should have found two entries (foo/bar both)");
-    let three = store
-        .search(&HashMap::from([("service", "foo"), ("user", "")]))
-        .expect("Search for three values failed");
-    assert_eq!(
-        three.len(),
-        3,
-        "Should have found three entries (service foo)"
-    );
+        .unwrap();
+    assert_eq!(two.len(), 2);
+    let three = store.search(&HashMap::from([("service", "foo")])).unwrap();
+    assert_eq!(three.len(), 3);
+    let all = store.search(&HashMap::from([("foo", "bar")])).unwrap();
+    assert_eq!(all.len(), 3);
 }
 
 #[test]
 fn test_persistence_no_backing() {
-    let store: Arc<CredentialStore> = super::store::Store::new();
+    let store: Arc<CredentialStore> = Store::new();
     assert!(matches!(
         store.persistence(),
         CredentialPersistence::ProcessOnly
@@ -545,29 +544,23 @@ fn test_persistence_with_backing_and_save() {
         .unwrap()
         .to_string();
     _ = std::fs::remove_file(&path);
-    let s1 =
-        super::store::Store::new_with_backing(&path).expect("Failed to create empty, backed store");
+    let s1 = Store::new_with_backing(&path).unwrap();
     let cred_store: Arc<CredentialStore> = s1.clone();
     assert!(matches!(
         cred_store.persistence(),
         CredentialPersistence::UntilDelete
     ));
     assert_eq!(s1.as_ref().creds.len(), 0);
-    let e1 = cred_store
-        .build("s1", "u1", None)
-        .expect("Couldn't create e1 cred");
+    let e1 = cred_store.build("s1", "u1", None).unwrap();
     assert_eq!(s1.as_ref().creds.len(), 0);
-    e1.set_password("pw1").expect("Couldn't set e1 password");
+    e1.set_password("pw1").unwrap();
     assert_eq!(s1.as_ref().creds.len(), 1);
-    let e2 = cred_store
-        .build("s2", "u2", None)
-        .expect("Couldn't create e2 cred");
+    let e2 = cred_store.build("s2", "u2", None).unwrap();
     assert_eq!(s1.as_ref().creds.len(), 1);
-    e2.set_password("pw2").expect("Couldn't set e2 password");
+    e2.set_password("pw2").unwrap();
     assert_eq!(s1.as_ref().creds.len(), 2);
-    s1.save().expect("Failure saving store");
-    let s2 =
-        super::store::Store::new_with_backing(&path).expect("Failed to re-create existing store");
+    s1.save().unwrap();
+    let s2 = Store::new_with_backing(&path).unwrap();
     assert_eq!(s2.as_ref().creds.len(), 2);
 }
 
@@ -580,24 +573,18 @@ fn test_persistence_with_backing_and_drop() {
         .to_string();
     _ = std::fs::remove_file(&path);
     {
-        let s1 = super::store::Store::new_with_backing(&path)
-            .expect("Failed to create empty, backed store");
+        let s1 = Store::new_with_backing(&path).unwrap();
         let cred_store: Arc<CredentialStore> = s1.clone();
         assert_eq!(s1.as_ref().creds.len(), 0);
-        let e1 = cred_store
-            .build("s1", "u1", None)
-            .expect("Couldn't create e1 cred");
+        let e1 = cred_store.build("s1", "u1", None).unwrap();
         assert_eq!(s1.as_ref().creds.len(), 0);
-        e1.set_password("pw1").expect("Couldn't set e1 password");
+        e1.set_password("pw1").unwrap();
         assert_eq!(s1.as_ref().creds.len(), 1);
-        let e2 = cred_store
-            .build("s2", "u2", None)
-            .expect("Couldn't create e2 cred");
+        let e2 = cred_store.build("s2", "u2", None).unwrap();
         assert_eq!(s1.as_ref().creds.len(), 1);
-        e2.set_password("pw2").expect("Couldn't set e2 password");
+        e2.set_password("pw2").unwrap();
         assert_eq!(s1.as_ref().creds.len(), 2);
     }
-    let s2 =
-        super::store::Store::new_with_backing(&path).expect("Failed to re-create existing store");
+    let s2 = Store::new_with_backing(&path).unwrap();
     assert_eq!(s2.as_ref().creds.len(), 2);
 }
