@@ -205,6 +205,11 @@ impl CredentialApi for CredKey {
     }
 
     /// See the API docs.
+    fn get_specifiers(&self) -> Option<(String, String)> {
+        Some((self.id.service.clone(), self.id.user.clone()))
+    }
+
+    /// See the API docs.
     fn as_any(&self) -> &dyn Any {
         self
     }

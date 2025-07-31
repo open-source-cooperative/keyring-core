@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::credential::{CredId, CredKey};
 use crate::{
-    Credential,
+    Entry,
     Error::{Invalid, PlatformFailure},
     Result,
     api::{CredentialPersistence, CredentialStoreApi},
@@ -133,7 +133,7 @@ impl Store {
 
     /// Create a store with the given credentials and backing file.
     ///
-    /// This inserts the store into the list of all stores, and saves
+    /// This inserts the store into the list of all stores and saves
     /// the index of its reference in the store itself (so it can
     /// pass the reference on to its credentials).
     ///
@@ -143,7 +143,7 @@ impl Store {
     pub fn new_internal(creds: CredMap, backing: Option<String>) -> Arc<Self> {
         let mut guard = STORES
             .write()
-            .expect("Poisoned RwLock creating a store: report a bug!");
+            .expect("Poisoned RwLock creating a store: please report a bug!");
         let store = Arc::new(Store {
             index: guard.len(),
             creds,
@@ -188,7 +188,7 @@ impl CredentialStoreApi for Store {
     /// See the API docs.
     ///
     /// The only modifier you can specify is `target`; all others are ignored.
-    /// The `target` modifier forces immediate credential creation, and can
+    /// The `target` modifier forces immediate credential creation and can
     /// be used with the same service name and username to create ambiguity.
     ///
     /// When the target modifier is specified, the created credential gets
@@ -199,19 +199,19 @@ impl CredentialStoreApi for Store {
         service: &str,
         user: &str,
         mods: Option<&HashMap<&str, &str>>,
-    ) -> Result<Arc<Credential>> {
+    ) -> Result<Entry> {
         let id = CredId {
             service: service.to_owned(),
             user: user.to_owned(),
         };
         let guard = STORES
             .read()
-            .expect("Poisoned RwLock at credential creation: report a bug!");
+            .expect("Poisoned RwLock at credential creation: please report a bug!");
         let store = guard
             .get(self.index)
-            .expect("Missing weak ref at credential creation: report a bug!")
+            .expect("Missing weak ref at credential creation: please report a bug!")
             .upgrade()
-            .expect("Missing store at credential creation: report a bug!");
+            .expect("Missing store at credential creation: please report a bug!");
         let key = CredKey {
             store,
             id: id.clone(),
@@ -233,7 +233,9 @@ impl CredentialStoreApi for Store {
                 };
             }
         }
-        Ok(Arc::new(key))
+        Ok(Entry {
+            inner: Arc::new(key),
+        })
     }
 
     /// See the API docs.
@@ -243,8 +245,8 @@ impl CredentialStoreApi for Store {
     /// Every credential whose service name matches the service regex
     /// _and_ whose username matches the user regex will be returned.
     /// (The match is a substring match, so the empty string will match every value.)
-    fn search(&self, spec: &HashMap<&str, &str>) -> Result<Vec<Arc<Credential>>> {
-        let mut result: Vec<Arc<Credential>> = Vec::new();
+    fn search(&self, spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
+        let mut result: Vec<Entry> = Vec::new();
         let svc = regex::Regex::new(spec.get("service").unwrap_or(&""))
             .map_err(|e| Invalid("service regex".to_string(), e.to_string()))?;
         let usr = regex::Regex::new(spec.get("user").unwrap_or(&""))
@@ -255,12 +257,12 @@ impl CredentialStoreApi for Store {
             .map_err(|e| Invalid("uuid regex".to_string(), e.to_string()))?;
         let guard = STORES
             .read()
-            .expect("Poisoned RwLock at credential creation: report a bug!");
+            .expect("Poisoned RwLock at credential creation: please report a bug!");
         let store = guard
             .get(self.index)
-            .expect("Missing weak ref at credential search: report a bug!")
+            .expect("Missing weak ref at credential search: please report a bug!")
             .upgrade()
-            .expect("Missing store at credential search: report a bug!");
+            .expect("Missing store at credential search: please report a bug!");
         for pair in self.creds.iter() {
             if !svc.is_match(pair.key().service.as_str()) {
                 continue;
@@ -280,11 +282,13 @@ impl CredentialStoreApi for Store {
                         continue;
                     }
                 }
-                result.push(Arc::new(CredKey {
-                    store: store.clone(),
-                    id: pair.key().clone(),
-                    uuid: Some(cred.key().clone()),
-                }))
+                result.push(Entry {
+                    inner: Arc::new(CredKey {
+                        store: store.clone(),
+                        id: pair.key().clone(),
+                        uuid: Some(cred.key().clone()),
+                    }),
+                })
             }
         }
         Ok(result)

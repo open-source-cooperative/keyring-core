@@ -13,35 +13,36 @@ application startup _before_ creating any entries:
 keyring_core::set_default_store(keyring_core::mock::Store::new());
 ```
 
-You can then create entries as you usually do, and call their usual methods
-to set, get, and delete passwords.  There is no persistence other than
-in the entry itself, so getting a password before setting it will always result
-in a [NoEntry](Error::NoEntry) error.
+You can then create entries as usual and call their usual methods
+to set, get, and delete passwords. There is no persistence except in-memory
+so, once you drop the store, all the credentials will be gone.
 
 If you want a method call on an entry to fail in a specific way, you can
 downcast the entry to a [Cred] and then call [set_error](Cred::set_error)
 with the appropriate error.  The next entry method called on the credential
 will fail with the error you set.  The error will then be cleared, so the next
-call on the mock will operate as usual.  Here's a complete example:
+call on the mock will operate as usual.  Setting an error will not affect
+the value of the credential (if any). Here's a complete example:
 
 ```rust
 # use keyring_core::{Entry, Error, mock, mock::Cred};
 keyring_core::set_default_store(mock::Store::new());
 let entry = Entry::new("service", "user").unwrap();
-let mock: &Cred = entry.as_credential().downcast_ref().unwrap();
+entry.set_password("test").expect("the entry's password is now test");
+let mock: &Cred = entry.as_any().downcast_ref().unwrap();
 mock.set_error(Error::Invalid("mock error".to_string(), "takes precedence".to_string()));
-entry.set_password("test").expect_err("error will override");
-entry.set_password("test").expect("error has been cleared");
+_ = entry.get_password().expect_err("the error will be returned");
+let val = entry.get_password().expect("the error has been cleared");
+assert_eq!(val, "test", "the error did not affect that password");
 ```
 
  */
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
-use super::error::decode_password;
 use crate::api::{CredentialApi, CredentialStoreApi};
-use crate::{Credential, CredentialPersistence, Error, Result};
+use crate::{Credential, CredentialPersistence, Entry, Error, Result};
 
 /// The concrete mock credential
 ///
@@ -49,15 +50,8 @@ use crate::{Credential, CredentialPersistence, Error, Result};
 /// The mutex is used to make sure these are Sync.
 #[derive(Debug)]
 pub struct Cred {
+    pub specifiers: (String, String),
     pub inner: Mutex<RefCell<CredData>>,
-}
-
-impl Default for Cred {
-    fn default() -> Self {
-        Self {
-            inner: Mutex::new(RefCell::new(Default::default())),
-        }
-    }
 }
 
 /// The (in-memory) persisted data for a mock credential.
@@ -74,37 +68,16 @@ pub struct CredData {
 }
 
 impl CredentialApi for Cred {
-    /// Set a password on a mock credential.
+    /// See the API docs.
     ///
     /// If there is an error in the mock, it will be returned
-    /// and the password will _not_ be set.  The error will
-    /// be cleared, so calling again will set the password.
-    fn set_password(&self, password: &str) -> Result<()> {
-        let mut inner = self
-            .inner
-            .lock()
-            .expect("Can't access mock data for set_password");
-        let data = inner.get_mut();
-        let err = data.error.take();
-        match err {
-            None => {
-                data.secret = Some(password.as_bytes().to_vec());
-                Ok(())
-            }
-            Some(err) => Err(err),
-        }
-    }
-
-    /// Set a password on a mock credential.
-    ///
-    /// If there is an error in the mock, it will be returned
-    /// and the password will _not_ be set.  The error will
-    /// be cleared, so calling again will set the password.
+    /// and the secret will _not_ be set.  The error will
+    /// be cleared, so calling again will set the secret.
     fn set_secret(&self, secret: &[u8]) -> Result<()> {
         let mut inner = self
             .inner
             .lock()
-            .expect("Can't access mock data for set_secret");
+            .expect("Can't access mock data for set_secret: please report a bug!");
         let data = inner.get_mut();
         let err = data.error.take();
         match err {
@@ -116,29 +89,16 @@ impl CredentialApi for Cred {
         }
     }
 
-    /// Get the password from a mock credential, if any.
+    /// See the API docs.
     ///
     /// If there is an error set in the mock, it will
-    /// be returned instead of a password.
-    fn get_password(&self) -> Result<String> {
-        let mut inner = self.inner.lock().expect("Can't access mock data for get");
-        let data = inner.get_mut();
-        let err = data.error.take();
-        match err {
-            None => match &data.secret {
-                None => Err(Error::NoEntry),
-                Some(val) => decode_password(val.clone()),
-            },
-            Some(err) => Err(err),
-        }
-    }
-
-    /// Get the password from a mock credential, if any.
-    ///
-    /// If there is an error set in the mock, it will
-    /// be returned instead of a password.
+    /// be returned instead of a secret. The existing
+    /// secret will not change.
     fn get_secret(&self) -> Result<Vec<u8>> {
-        let mut inner = self.inner.lock().expect("Can't access mock data for get");
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("Can't access mock data for get: please report a bug!");
         let data = inner.get_mut();
         let err = data.error.take();
         match err {
@@ -150,18 +110,15 @@ impl CredentialApi for Cred {
         }
     }
 
-    /// Delete the password in a mock credential
+    /// See the API docs.
     ///
     /// If there is an error, it will be returned and
-    /// the deletion will not happen.
-    ///
-    /// If there is no password, a [NoEntry](Error::NoEntry) error
-    /// will be returned.
+    /// cleared. Calling again will delete the cred.
     fn delete_credential(&self) -> Result<()> {
         let mut inner = self
             .inner
             .lock()
-            .expect("Can't access mock data for delete");
+            .expect("Can't access mock data for delete: please report a bug!");
         let data = inner.get_mut();
         let err = data.error.take();
         match err {
@@ -178,9 +135,27 @@ impl CredentialApi for Cred {
 
     /// See the API docs.
     ///
-    /// This always returns None, since each mock credential is its only wrapper.
+    /// If there is an error in the mock, it's returned instead and cleared.
+    /// Calling again will retry the operation.
     fn get_credential(&self) -> Result<Option<Arc<Credential>>> {
-        Ok(None)
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("Can't access mock data for get_credential: please report a bug!");
+        let data = inner.get_mut();
+        let err = data.error.take();
+        match err {
+            None => match data.secret {
+                Some(_) => Ok(None),
+                None => Err(Error::NoEntry),
+            },
+            Some(err) => Err(err),
+        }
+    }
+
+    /// See the API docs.
+    fn get_specifiers(&self) -> Option<(String, String)> {
+        Some(self.specifiers.clone())
     }
 
     /// Return this mock credential concrete object
@@ -197,14 +172,6 @@ impl CredentialApi for Cred {
 }
 
 impl Cred {
-    /// Make a new mock credential.
-    ///
-    /// Since mocks have no persistence between sessions,
-    /// new mocks always have no password.
-    fn new() -> Result<Self> {
-        Ok(Default::default())
-    }
-
     /// Set an error to be returned from this mock credential.
     ///
     /// Error returns always take precedence over the normal
@@ -214,20 +181,28 @@ impl Cred {
         let mut inner = self
             .inner
             .lock()
-            .expect("Can't access mock data for set_error");
+            .expect("Can't access mock data for set_error: please report a bug!");
         let data = inner.get_mut();
         data.error = Some(err);
     }
 }
 
 /// The builder for mock credentials.
+///
+/// We keep them in a vector so we can reuse them
+/// for entries with the same service and user.
+/// Yes, a hashmap might be faster, but this is
+/// way simpler.
 #[derive(Debug)]
-pub struct Store {}
+pub struct Store {
+    pub inner: Mutex<RefCell<Vec<Arc<Cred>>>>,
+}
 
 impl Store {
     pub fn new() -> Arc<Self> {
-        static DEFAULT_STORE: LazyLock<Arc<Store>> = LazyLock::new(|| Arc::new(Store {}));
-        Arc::clone(&DEFAULT_STORE)
+        Arc::new(Store {
+            inner: Mutex::new(RefCell::new(Vec::new())),
+        })
     }
 }
 
@@ -244,14 +219,25 @@ impl CredentialStoreApi for Store {
     ///
     /// Since mocks don't persist beyond the life of their entry, all mocks
     /// start off without passwords.
-    fn build(
-        &self,
-        _service: &str,
-        _user: &str,
-        _: Option<&HashMap<&str, &str>>,
-    ) -> Result<Arc<Credential>> {
-        let credential = Cred::new()?;
-        Ok(Arc::new(credential))
+    fn build(&self, service: &str, user: &str, _: Option<&HashMap<&str, &str>>) -> Result<Entry> {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("Can't access mock store data: please report a bug!");
+        let creds = inner.get_mut();
+        for cred in creds.iter() {
+            if service == cred.specifiers.0 && user == cred.specifiers.1 {
+                return Ok(Entry {
+                    inner: cred.clone(),
+                });
+            }
+        }
+        let cred = Arc::new(Cred {
+            specifiers: (service.to_string(), user.to_string()),
+            inner: Mutex::new(RefCell::new(Default::default())),
+        });
+        creds.push(cred.clone());
+        Ok(Entry { inner: cred })
     }
 
     /// Get an [Any][std::any::Any] reference to the mock credential builder.
@@ -261,7 +247,7 @@ impl CredentialStoreApi for Store {
 
     /// This keystore keeps the password in the entry!
     fn persistence(&self) -> CredentialPersistence {
-        CredentialPersistence::EntryOnly
+        CredentialPersistence::ProcessOnly
     }
 
     /// Expose the concrete debug formatter
@@ -307,10 +293,10 @@ mod tests {
     fn test_round_trip_no_delete(case: &str, entry: &Entry, in_pass: &str) {
         entry
             .set_password(in_pass)
-            .unwrap_or_else(|err| panic!("Can't set password for {case}: {err:?}"));
+            .unwrap_or_else(|err| panic!("Can't set password: {case}: {err:?}"));
         let out_pass = entry
             .get_password()
-            .unwrap_or_else(|err| panic!("Can't get password for {case}: {err:?}"));
+            .unwrap_or_else(|err| panic!("Can't get password: {case}: {err:?}"));
         assert_eq!(
             in_pass, out_pass,
             "Passwords don't match for {case}: set='{in_pass}', get='{out_pass}'",
@@ -322,12 +308,9 @@ mod tests {
         test_round_trip_no_delete(case, entry, in_pass);
         entry
             .delete_credential()
-            .unwrap_or_else(|err| panic!("Can't delete password for {case}: {err:?}"));
+            .unwrap_or_else(|err| panic!("Can't delete password: {case}: {err:?}"));
         let password = entry.get_password();
-        assert!(
-            matches!(password, Err(Error::NoEntry)),
-            "Read deleted password for {case}",
-        );
+        assert!(matches!(password, Err(Error::NoEntry)));
     }
 
     // A round-trip secret test that does delete the credential afterward
@@ -346,19 +329,16 @@ mod tests {
             .delete_credential()
             .unwrap_or_else(|err| panic!("Can't delete credential for {case}: {err:?}"));
         let secret = entry.get_secret();
-        assert!(
-            matches!(secret, Err(Error::NoEntry)),
-            "Read deleted password for {case}",
-        );
+        assert!(matches!(secret, Err(Error::NoEntry)));
     }
 
     #[test]
     fn test_empty_service_and_user() {
         let name = generate_random_string();
-        let in_pass = "doesn't matter";
+        let in_pass = "value doesn't matter";
         test_round_trip("empty user", &entry_new(&name, ""), in_pass);
         test_round_trip("empty service", &entry_new("", &name), in_pass);
-        test_round_trip("empty service & user", &entry_new("", ""), in_pass);
+        test_round_trip("empty service and user", &entry_new("", ""), in_pass);
     }
 
     #[test]
@@ -372,10 +352,7 @@ mod tests {
     fn test_missing_entry() {
         let name = generate_random_string();
         let entry = entry_new(&name, &name);
-        assert!(
-            matches!(entry.get_password(), Err(Error::NoEntry)),
-            "Missing entry has password"
-        )
+        assert!(matches!(entry.get_password(), Err(Error::NoEntry)))
     }
 
     #[test]
@@ -390,6 +367,37 @@ mod tests {
         let name = generate_random_string();
         let entry = entry_new(&name, &name);
         test_round_trip("non-ascii password", &entry, "このきれいな花は桜です");
+    }
+
+    #[test]
+    fn test_entries_with_same_and_different_specifiers() {
+        let name1 = generate_random_string();
+        let name2 = generate_random_string();
+        let entry1 = entry_new(&name1, &name2);
+        let entry2 = entry_new(&name1, &name2);
+        let entry3 = entry_new(&name2, &name1);
+        entry1.set_password("test password").unwrap();
+        let pw2 = entry2.get_password().unwrap();
+        assert_eq!(pw2, "test password");
+        _ = entry3.get_password().unwrap_err();
+        entry1.delete_credential().unwrap();
+        _ = entry2.get_password().unwrap_err();
+        entry3.delete_credential().unwrap_err();
+    }
+
+    #[test]
+    fn test_get_credential_and_specifiers() {
+        let name = generate_random_string();
+        let entry1 = entry_new(&name, &name);
+        assert!(matches!(entry1.get_credential(), Err(Error::NoEntry)));
+        entry1.set_password("password for entry1").unwrap();
+        let wrapper = entry1.get_credential().unwrap();
+        let (service, user) = wrapper.get_specifiers().unwrap();
+        assert_eq!(service, name);
+        assert_eq!(user, name);
+        wrapper.delete_credential().unwrap();
+        entry1.delete_credential().unwrap_err();
+        wrapper.delete_credential().unwrap_err();
     }
 
     #[test]
@@ -416,40 +424,24 @@ mod tests {
     fn test_get_update_attributes() {
         let name = generate_random_string();
         let entry = entry_new(&name, &name);
-        assert!(
-            matches!(entry.get_attributes(), Err(Error::NoEntry)),
-            "Read missing credential in attribute test",
-        );
+        assert!(matches!(entry.get_attributes(), Err(Error::NoEntry)));
         let map = HashMap::from([("test attribute name", "test attribute value")]);
-        assert!(
-            matches!(entry.update_attributes(&map), Err(Error::NoEntry)),
-            "Updated missing credential in attribute test",
-        );
+        assert!(matches!(entry.update_attributes(&map), Err(Error::NoEntry)));
         // create the credential and test again
-        entry
-            .set_password("test password for attributes")
-            .unwrap_or_else(|err| panic!("Can't set password for attribute test: {err:?}"));
+        entry.set_password("test password for attributes").unwrap();
         match entry.get_attributes() {
             Err(err) => panic!("Couldn't get attributes: {err:?}"),
             Ok(attrs) if attrs.is_empty() => {}
             Ok(attrs) => panic!("Unexpected attributes: {attrs:?}"),
         }
-        assert!(
-            matches!(entry.update_attributes(&map), Ok(())),
-            "Couldn't update attributes in attribute test",
-        );
+        assert!(matches!(entry.update_attributes(&map), Ok(())));
         match entry.get_attributes() {
             Err(err) => panic!("Couldn't get attributes after update: {err:?}"),
             Ok(attrs) if attrs.is_empty() => {}
             Ok(attrs) => panic!("Unexpected attributes after update: {attrs:?}"),
         }
-        entry
-            .delete_credential()
-            .unwrap_or_else(|err| panic!("Can't delete credential for attribute test: {err:?}"));
-        assert!(
-            matches!(entry.get_attributes(), Err(Error::NoEntry)),
-            "Read deleted credential in attribute test",
-        );
+        entry.delete_credential().unwrap();
+        assert!(matches!(entry.get_attributes(), Err(Error::NoEntry)));
     }
 
     #[test]
@@ -457,44 +449,27 @@ mod tests {
         let name = generate_random_string();
         let entry = entry_new(&name, &name);
         let password = "test ascii password";
-        let mock: &Cred = entry
-            .inner
-            .as_any()
-            .downcast_ref()
-            .expect("Downcast failed");
+        let mock: &Cred = entry.inner.as_any().downcast_ref().unwrap();
         mock.set_error(Error::Invalid(
             "mock error".to_string(),
             "is an error".to_string(),
         ));
-        assert!(
-            matches!(entry.set_password(password), Err(Error::Invalid(_, _))),
-            "set: No error"
-        );
-        entry
-            .set_password(password)
-            .expect("set: Error not cleared");
+        assert!(matches!(
+            entry.set_password(password),
+            Err(Error::Invalid(_, _))
+        ));
+        entry.set_password(password).unwrap();
         mock.set_error(Error::NoEntry);
-        assert!(
-            matches!(entry.get_password(), Err(Error::NoEntry)),
-            "get: No error"
-        );
-        let stored_password = entry.get_password().expect("get: Error not cleared");
-        assert_eq!(
-            stored_password, password,
-            "Retrieved and set ascii passwords don't match"
-        );
+        assert!(matches!(entry.get_password(), Err(Error::NoEntry)));
+        let stored_password = entry.get_password().unwrap();
+        assert_eq!(stored_password, password);
         mock.set_error(Error::TooLong("mock".to_string(), 3));
-        assert!(
-            matches!(entry.delete_credential(), Err(Error::TooLong(_, 3))),
-            "delete: No error"
-        );
-        entry
-            .delete_credential()
-            .expect("delete: Error not cleared");
-        assert!(
-            matches!(entry.get_password(), Err(Error::NoEntry)),
-            "Able to read a deleted ascii password"
-        )
+        assert!(matches!(
+            entry.delete_credential(),
+            Err(Error::TooLong(_, 3))
+        ));
+        entry.delete_credential().unwrap();
+        assert!(matches!(entry.get_password(), Err(Error::NoEntry)))
     }
 
     #[test]
@@ -511,7 +486,7 @@ mod tests {
         let store: Arc<CredentialStore> = Store::new();
         assert!(matches!(
             store.persistence(),
-            CredentialPersistence::EntryOnly
+            CredentialPersistence::ProcessOnly
         ))
     }
 }

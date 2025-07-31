@@ -14,7 +14,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::{Error, Result};
+use super::{Entry, Error, Result};
 
 /// The API that [credentials](Credential) implement.
 pub trait CredentialApi {
@@ -26,11 +26,11 @@ pub trait CredentialApi {
         self.set_secret(password.as_bytes())
     }
 
-    /// Set the credential's protected data to be the given byte array.
+    /// Set the underlying credential's protected data to be the given byte array.
     ///
     /// Expected behavior:
     ///
-    /// - If the entry has no associated credential:
+    /// - If the entry has no underlying credential:
     ///   - If the entry is a specifier, create a credential and save the data in it.
     ///   - If the entry is a wrapper, return a [NoEntry](Error::NoEntry) error.
     /// - If the entry has exactly one associated credential,
@@ -43,7 +43,7 @@ pub trait CredentialApi {
     /// return an [Invalid](Error::Invalid) error.
     fn set_secret(&self, secret: &[u8]) -> Result<()>;
 
-    /// Retrieve the protected data as a UTF-8 string from the associated credential.
+    /// Retrieve the protected data as a UTF-8 string from the underlying credential.
     ///
     /// This method has a default implementation in terms of
     /// [get_secret](CredentialApi::get_secret), which see.
@@ -100,7 +100,7 @@ pub trait CredentialApi {
         Ok(())
     }
 
-    /// Delete the underlying credential if there is one.
+    /// Delete the underlying credential.
     ///
     /// If the underlying credential doesn't exist, return
     /// a [NoEntry](Error::NoEntry) error.
@@ -119,6 +119,9 @@ pub trait CredentialApi {
     /// If there is more than one matching credential,
     /// return an [Ambiguous](Error::Ambiguous) error.
     fn get_credential(&self) -> Result<Option<Arc<Credential>>>;
+
+    /// Return the `<service, user>` pair for this credential, if any.
+    fn get_specifiers(&self) -> Option<(String, String)>;
 
     /// Return the inner credential object cast to [Any].
     ///
@@ -158,9 +161,9 @@ pub enum CredentialPersistence {
     /// Credential storage is in process memory,
     /// so storage vanishes when the process terminates
     ProcessOnly,
-    /// Credential storage is in user-space memory, so storage vanishes when user logs out
+    /// Credential storage is in user-space memory, so storage vanishes when the user logs out
     UntilLogout,
-    /// Credentials stored in kernel-space memory, so storage vanishes when machine reboots
+    /// Credentials stored in kernel-space memory, so storage vanishes when the machine reboots
     UntilReboot,
     /// Credentials stored on disk, so storage vanishes when the credential is deleted
     UntilDelete,
@@ -183,7 +186,7 @@ pub trait CredentialStoreApi {
     fn id(&self) -> String;
 
     /// Create an entry specified by the given service and user,
-    /// perhaps with additional creation-time attributes.
+    /// perhaps with additional creation-time options.
     ///
     /// This typically has no effect on the content of the underlying store.
     /// A credential need not be persisted until its password is set.
@@ -191,8 +194,8 @@ pub trait CredentialStoreApi {
         &self,
         service: &str,
         user: &str,
-        attrs: Option<&HashMap<&str, &str>>,
-    ) -> Result<Arc<Credential>>;
+        options: Option<&HashMap<&str, &str>>,
+    ) -> Result<Entry>;
 
     /// Search for credentials that match the given spec.
     ///
@@ -203,7 +206,7 @@ pub trait CredentialStoreApi {
     /// The default implementation returns a
     /// [NotSupportedByStore](Error::NotSupportedByStore) error; that is,
     /// credential stores need not provide support for search.
-    fn search(&self, _spec: &HashMap<&str, &str>) -> Result<Vec<Arc<Credential>>> {
+    fn search(&self, _spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
         let vendor = self.vendor();
         Err(Error::NotSupportedByStore(vendor))
     }

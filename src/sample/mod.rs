@@ -34,7 +34,7 @@ creating an entry, a new credential with an empty password
 will be created immediately for the specified service name and username.
 
 * If there was _not_ an existing credential for your service name
-  and username, then the newly-created credential will be the
+  and username, then the newly created credential will be the
   only one, so the returned entry will not be ambiguous.
 * If there _was_ an existing credential for your service name and username,
   then the returned entry will be ambiguous.
