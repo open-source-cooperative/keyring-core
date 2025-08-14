@@ -32,8 +32,8 @@ fn make_ambiguous_entries(count: i32) -> Result<Entry> {
 fn resolve_with_entries(entries: Vec<Entry>) -> Result<()> {
     for entry in entries {
         let attributes = entry.get_attributes()?;
-        let comment = attributes.get("comment").map(|s| s.clone()).unwrap();
-        let uuid = attributes.get("uuid").map(|s| s.clone()).unwrap();
+        let comment = attributes.get("comment").cloned().unwrap();
+        let uuid = attributes.get("uuid").cloned().unwrap();
         if comment == "e1" {
             println!("Found wrapper for e1 with uuid {uuid}, setting its password");
             entry.set_password("password set while using entry to resolve ambiguity")?;
