@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Fetch head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install rust stable
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -23,19 +23,22 @@ jobs:
         run: cargo fmt --check
 
       - name: Clippy check
-        run: cargo clippy --features=sample -- -D warnings
+        run: cargo clippy --no-deps --all-targets --all-features -- -D warnings
 
       - name: Build and Test
         env:
           RUST_LOG: debug
-        run: cargo test --features=sample --verbose
+        run: cargo test --all-features --verbose
+
+      - name: Build examples
+        run: cargo build --examples --verbose
 
   ci_msrv:
     runs-on: ubuntu-latest
 
     steps:
       - name: Fetch head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install rust MSRV
         uses: actions-rust-lang/setup-rust-toolchain@v1

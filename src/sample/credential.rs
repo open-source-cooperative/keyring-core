@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::store::{CredValue, Store};
+use crate::attributes::parse_attributes;
 use crate::{Credential, Entry, Error, Result, api::CredentialApi};
 
 /// Credentials are specified by a pair of service name and username.
@@ -39,7 +40,7 @@ impl CredKey {
     /// If there is no credential, it returns a NoEntry error.
     /// If there are multiple credentials, it returns an ambiguous error.
     ///
-    /// It knows about the difference between specifiers and wrappers,
+    /// It knows about the difference between specifiers and wrappers
     /// and acts accordingly.
     pub fn with_unique_pair<T, F>(&self, f: F) -> Result<T>
     where
@@ -102,12 +103,14 @@ impl CredKey {
         self.with_unique_pair(|_, cred| f(cred))
     }
 
-    /// This is like `get_secret`, but it returns the UUID of the sole credential
-    /// rather than the secret.
-    ///
-    /// It works on both specifiers and wrappers.
+    /// This returns the UUID of the sole credential for this cred.
     pub fn get_uuid(&self) -> Result<String> {
         self.with_unique_pair(|uuid, _| uuid.to_string())
+    }
+
+    /// This returns the comment of the sole credential for this cred.
+    pub fn get_comment(&self) -> Result<Option<String>> {
+        self.with_unique_pair(|_, cred| cred.comment.clone())
     }
 }
 
@@ -137,30 +140,17 @@ impl CredentialApi for CredKey {
 
     /// See the API docs.
     ///
-    /// The only attributes on credentials in this store are `comment`
-    /// and `creation_date`.
+    /// The possible attributes on credentials in this store are `uuid`, `comment`,
+    /// and `creation-date`.
     fn get_attributes(&self) -> Result<HashMap<String, String>> {
         self.with_unique_pair(|uuid, cred| get_attrs(uuid, cred))
     }
 
     /// See the API docs.
     ///
-    /// Only the `comment` attribute can be updated. The `creation_date`
-    /// attribute cannot be modified and specifying it will produce an error.
-    /// All other attributes are ignored.
+    /// Only the `comment` attribute can be updated.
     fn update_attributes(&self, attrs: &HashMap<&str, &str>) -> Result<()> {
-        if attrs.contains_key("creation_date") {
-            return Err(Error::Invalid(
-                "creation_date".to_string(),
-                "cannot be updated".to_string(),
-            ));
-        }
-        if attrs.contains_key("uuid") {
-            return Err(Error::Invalid(
-                "uuid".to_string(),
-                "cannot be updated".to_string(),
-            ));
-        }
+        parse_attributes(&["comment"], attrs)?;
         self.with_unique_cred(|cred| update_attrs(cred, attrs))
     }
 
@@ -228,7 +218,7 @@ pub fn get_attrs(uuid: &str, cred: &CredValue) -> HashMap<String, String> {
     attrs.insert("uuid".to_string(), uuid.to_string());
     if cred.creation_date.is_some() {
         attrs.insert(
-            "creation_date".to_string(),
+            "creation-date".to_string(),
             cred.creation_date.as_ref().unwrap().to_string(),
         );
     }

@@ -10,7 +10,7 @@ in this store have no attributes at all.
 To use this credential store instead of the default, make this call during
 application startup _before_ creating any entries:
 ```rust
-keyring_core::set_default_store(keyring_core::mock::Store::new());
+keyring_core::set_default_store(keyring_core::mock::Store::new().unwrap());
 ```
 
 You can then create entries as usual and call their usual methods
@@ -25,21 +25,22 @@ call on the mock will operate as usual.  Setting an error will not affect
 the value of the credential (if any). Here's a complete example:
 
 ```rust
-# use keyring_core::{Entry, Error, mock, mock::Cred};
-keyring_core::set_default_store(mock::Store::new());
+# use keyring_core::{Entry, Error, mock};
+keyring_core::set_default_store(mock::Store::new().unwrap());
 let entry = Entry::new("service", "user").unwrap();
 entry.set_password("test").expect("the entry's password is now test");
-let mock: &Cred = entry.as_any().downcast_ref().unwrap();
+let mock: &mock::Cred = entry.as_any().downcast_ref().unwrap();
 mock.set_error(Error::Invalid("mock error".to_string(), "takes precedence".to_string()));
 _ = entry.get_password().expect_err("the error will be returned");
 let val = entry.get_password().expect("the error has been cleared");
-assert_eq!(val, "test", "the error did not affect that password");
+assert_eq!(val, "test", "the error did not affect the password");
 ```
 
  */
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::api::{CredentialApi, CredentialStoreApi};
 use crate::{Credential, CredentialPersistence, Entry, Error, Result};
@@ -195,31 +196,50 @@ impl Cred {
 /// way simpler.
 #[derive(Debug)]
 pub struct Store {
+    pub id: String,
     pub inner: Mutex<RefCell<Vec<Arc<Cred>>>>,
 }
 
 impl Store {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Store {
+    pub fn new() -> Result<Arc<Self>> {
+        Ok(Arc::new(Store {
+            id: format!(
+                "Crate version {}, Instantiated at {}",
+                env!("CARGO_PKG_VERSION"),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_else(|_| Duration::new(0, 0))
+                    .as_secs_f64()
+            ),
             inner: Mutex::new(RefCell::new(Vec::new())),
-        })
+        }))
     }
 }
 
 impl CredentialStoreApi for Store {
     fn vendor(&self) -> String {
-        String::from("keyring-core-mock")
+        String::from("Mock in-memory store, https://crates.io/crates/keyring-core")
     }
 
     fn id(&self) -> String {
-        String::from("singleton")
+        self.id.clone()
     }
 
-    /// Build a mock credential for the service and user. Any attributes are ignored.
+    /// Build a mock credential for the service and user. No modifiers are allowed.
     ///
     /// Since mocks don't persist beyond the life of their entry, all mocks
     /// start off without passwords.
-    fn build(&self, service: &str, user: &str, _: Option<&HashMap<&str, &str>>) -> Result<Entry> {
+    fn build(
+        &self,
+        service: &str,
+        user: &str,
+        mods: Option<&HashMap<&str, &str>>,
+    ) -> Result<Entry> {
+        if mods.is_some_and(|m| !m.is_empty()) {
+            return Err(Error::NotSupportedByStore(
+                "The mock store doesn't allow modifiers".to_string(),
+            ));
+        }
         let mut inner = self
             .inner
             .lock()
@@ -289,12 +309,30 @@ mod tests {
     use std::sync::{Arc, Once};
 
     use super::{Cred, HashMap, Store};
-    use crate::{CredentialPersistence, CredentialStore, Entry, Error};
+    use crate::{CredentialPersistence, CredentialStore, Entry, Error, get_default_store};
 
     static SET_STORE: Once = Once::new();
 
     fn usually_goes_in_main() {
-        crate::set_default_store(Store::new());
+        let _ = env_logger::builder().is_test(true).try_init();
+        crate::set_default_store(Store::new().unwrap());
+    }
+
+    #[test]
+    fn test_store_methods() {
+        SET_STORE.call_once(usually_goes_in_main);
+        let store = get_default_store().unwrap();
+        let vendor1 = store.vendor();
+        let id1 = store.id();
+        let vendor2 = store.vendor();
+        let id2 = store.id();
+        assert_eq!(vendor1, vendor2);
+        assert_eq!(id1, id2);
+        let store2: Arc<CredentialStore> = Store::new().unwrap();
+        let vendor3 = store2.vendor();
+        let id3 = store2.id();
+        assert_eq!(vendor1, vendor3);
+        assert_ne!(id1, id3);
     }
 
     fn entry_new(service: &str, user: &str) -> Entry {
@@ -448,30 +486,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_update_attributes() {
-        let name = generate_random_string();
-        let entry = entry_new(&name, &name);
-        assert!(matches!(entry.get_attributes(), Err(Error::NoEntry)));
-        let map = HashMap::from([("test attribute name", "test attribute value")]);
-        assert!(matches!(entry.update_attributes(&map), Err(Error::NoEntry)));
-        // create the credential and test again
-        entry.set_password("test password for attributes").unwrap();
-        match entry.get_attributes() {
-            Err(err) => panic!("Couldn't get attributes: {err:?}"),
-            Ok(attrs) if attrs.is_empty() => {}
-            Ok(attrs) => panic!("Unexpected attributes: {attrs:?}"),
-        }
-        assert!(matches!(entry.update_attributes(&map), Ok(())));
-        match entry.get_attributes() {
-            Err(err) => panic!("Couldn't get attributes after update: {err:?}"),
-            Ok(attrs) if attrs.is_empty() => {}
-            Ok(attrs) => panic!("Unexpected attributes after update: {attrs:?}"),
-        }
-        entry.delete_credential().unwrap();
-        assert!(matches!(entry.get_attributes(), Err(Error::NoEntry)));
-    }
-
-    #[test]
     fn test_set_error() {
         let name = generate_random_string();
         let entry = entry_new(&name, &name);
@@ -501,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_search() {
-        let store: Arc<CredentialStore> = Store::new();
+        let store: Arc<CredentialStore> = Store::new().unwrap();
         let all = store.search(&HashMap::from([])).unwrap();
         assert!(all.is_empty());
         let all = store
@@ -532,7 +546,7 @@ mod tests {
 
     #[test]
     fn test_persistence() {
-        let store: Arc<CredentialStore> = Store::new();
+        let store: Arc<CredentialStore> = Store::new().unwrap();
         assert!(matches!(
             store.persistence(),
             CredentialPersistence::ProcessOnly

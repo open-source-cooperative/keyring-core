@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
 use log::{debug, error};
@@ -13,6 +14,7 @@ use crate::{
     Error::{Invalid, PlatformFailure},
     Result,
     api::{CredentialPersistence, CredentialStoreApi},
+    attributes::parse_attributes,
 };
 
 /// The stored data for a credential
@@ -44,17 +46,17 @@ impl CredValue {
 /// A map from <service, user> pairs to matching credentials
 pub type CredMap = DashMap<CredId, DashMap<String, CredValue>>;
 
-/// The list of extant credential stores.
+/// A Store's mutable weak reference to itself
 ///
-/// Because credentials are created with a reference to their store,
-/// and stores shouldn't keep self-references (which would be circular),
-/// all created stores keep their index position in this static
-/// and get their self-reference from there.
-///
-/// These static references are intentionally weak, so that stores can
-/// in fact be dropped (by dropping the store itself and all
-/// credentials from that store).
-static STORES: RwLock<Vec<Weak<Store>>> = RwLock::new(Vec::new());
+/// Because credentials contain an `Arc` to their store,
+/// the store needs to keep a `Weak` to itself which can be
+/// upgraded to create the credential. Because
+/// the Store has to be created and an `Arc` of it taken
+/// before that `Arc` can be downgraded and stored inside
+/// the Store, the self-reference must be mutable.
+pub struct SelfRef {
+    inner_store: Weak<Store>,
+}
 
 /// A credential store.
 ///
@@ -62,15 +64,16 @@ static STORES: RwLock<Vec<Weak<Store>>> = RwLock::new(Vec::new());
 /// ourself in the STORES vector, so we can get a pointer to ourself
 /// whenever we need to build a credential.
 pub struct Store {
-    pub index: usize,
+    pub id: String,
     pub creds: CredMap,
     pub backing: Option<String>, // the backing file, if any
+    pub self_ref: RwLock<SelfRef>,
 }
 
 impl std::fmt::Debug for Store {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Store")
-            .field("index", &self.index)
+            .field("id", &self.id)
             .field("backing", &self.backing)
             .field("cred-count", &self.creds.len())
             .finish()
@@ -92,9 +95,23 @@ impl Drop for Store {
 }
 
 impl Store {
-    /// Create a new, empty store with no backing file.
-    pub fn new() -> Arc<Self> {
-        Self::new_internal(DashMap::new(), None)
+    /// Create a new store with a default configuration.
+    ///
+    /// The default configuration is empty with no backing file.
+    pub fn new() -> Result<Arc<Self>> {
+        Ok(Self::new_internal(DashMap::new(), None))
+    }
+
+    /// Create a new store with a user-specified configuration.
+    ///
+    /// The only allowed configuration option is the path to the backing file,
+    /// which should be the value of the `backing_file` key in the config map.
+    /// See [new_with_backing](Store::new_with_backing) for details.
+    pub fn new_with_config(config: HashMap<&str, &str>) -> Result<Arc<Self>> {
+        match parse_attributes(&["backing_file"], &config)?.get("backing_file") {
+            Some(path) => Self::new_with_backing(path),
+            None => Self::new(),
+        }
     }
 
     /// Create a new store from a backing file.
@@ -132,26 +149,26 @@ impl Store {
     }
 
     /// Create a store with the given credentials and backing file.
-    ///
-    /// This inserts the store into the list of all stores and saves
-    /// the index of its reference in the store itself (so it can
-    /// pass the reference on to its credentials).
-    ///
-    /// The reference in the list of all stores is weak, so it
-    /// won't keep the store from being destroyed when it goes
-    /// out of scope.
     pub fn new_internal(creds: CredMap, backing: Option<String>) -> Arc<Self> {
-        let mut guard = STORES
-            .write()
-            .expect("Poisoned RwLock creating a store: please report a bug!");
-        let store = Arc::new(Store {
-            index: guard.len(),
+        let store = Store {
+            id: format!(
+                "Crate version {}, Instantiated at {}",
+                env!("CARGO_PKG_VERSION"),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_else(|_| Duration::new(0, 0))
+                    .as_secs_f64()
+            ),
             creds,
             backing,
-        });
+            self_ref: RwLock::new(SelfRef {
+                inner_store: Weak::new(),
+            }),
+        };
         debug!("Created new store: {store:?}");
-        guard.push(Arc::downgrade(&store));
-        store
+        let result = Arc::new(store);
+        result.set_store(result.clone());
+        result
     }
 
     /// Loads store content from a backing file.
@@ -167,14 +184,26 @@ impl Store {
             Err(e) => Err(Invalid("Invalid path".to_string(), e.to_string())),
         }
     }
+
+    fn get_store(&self) -> Arc<Store> {
+        self.self_ref
+            .read()
+            .expect("RwLock bug at get!")
+            .inner_store
+            .upgrade()
+            .expect("Arc bug at get!")
+    }
+
+    fn set_store(&self, store: Arc<Store>) {
+        let mut guard = self.self_ref.write().expect("RwLock bug at set!");
+        guard.inner_store = Arc::downgrade(&store);
+    }
 }
 
 impl CredentialStoreApi for Store {
     /// See the API docs.
-    ///
-    /// The vendor string for this store is `keyring-core-sample`.
     fn vendor(&self) -> String {
-        String::from("keyring-core-sample")
+        String::from("In-memory sample store, https://crates.io/crates/keyring-core")
     }
 
     /// See the API docs.
@@ -182,18 +211,17 @@ impl CredentialStoreApi for Store {
     /// The store ID is based on its sequence number
     /// in the list of created stores.
     fn id(&self) -> String {
-        format!("sample-store-{}", self.index)
+        self.id.clone()
     }
 
     /// See the API docs.
     ///
-    /// The only modifier you can specify is `target`; all others are ignored.
-    /// The `target` modifier forces immediate credential creation and can
-    /// be used with the same service name and username to create ambiguity.
+    /// The only modifier you can specify is `force-create`, which forces
+    /// immediate credential creation and can be used to create ambiguity.
     ///
-    /// When the target modifier is specified, the created credential gets
+    /// When the force-create modifier is specified, the created credential gets
     /// an empty password/secret, a `comment` attribute with the value of the modifier,
-    /// and a `creation_date` attribute with a string for the current local time.
+    /// and a `creation_`date` attribute with a string for the current local time.
     fn build(
         &self,
         service: &str,
@@ -204,34 +232,27 @@ impl CredentialStoreApi for Store {
             service: service.to_owned(),
             user: user.to_owned(),
         };
-        let guard = STORES
-            .read()
-            .expect("Poisoned RwLock at credential creation: please report a bug!");
-        let store = guard
-            .get(self.index)
-            .expect("Missing weak ref at credential creation: please report a bug!")
-            .upgrade()
-            .expect("Missing store at credential creation: please report a bug!");
         let key = CredKey {
-            store,
+            store: self.get_store(),
             id: id.clone(),
             uuid: None,
         };
-        if let Some(mods) = mods {
-            if let Some(target) = mods.get("target") {
-                let uuid = Uuid::new_v4().to_string();
-                let value = CredValue::new_ambiguous(target);
-                match self.creds.get(&id) {
-                    None => {
-                        let creds = DashMap::new();
-                        creds.insert(uuid, value);
-                        self.creds.insert(id, creds);
-                    }
-                    Some(creds) => {
-                        creds.value().insert(uuid, value);
-                    }
-                };
-            }
+        if let Some(force_create) =
+            parse_attributes(&["force-create"], mods.unwrap_or(&HashMap::new()))?
+                .get("force-create")
+        {
+            let uuid = Uuid::new_v4().to_string();
+            let value = CredValue::new_ambiguous(force_create);
+            match self.creds.get(&id) {
+                None => {
+                    let creds = DashMap::new();
+                    creds.insert(uuid, value);
+                    self.creds.insert(id, creds);
+                }
+                Some(creds) => {
+                    creds.value().insert(uuid, value);
+                }
+            };
         }
         Ok(Entry {
             inner: Arc::new(key),
@@ -255,14 +276,7 @@ impl CredentialStoreApi for Store {
             .map_err(|e| Invalid("comment regex".to_string(), e.to_string()))?;
         let uuid = regex::Regex::new(spec.get("uuid").unwrap_or(&""))
             .map_err(|e| Invalid("uuid regex".to_string(), e.to_string()))?;
-        let guard = STORES
-            .read()
-            .expect("Poisoned RwLock at credential creation: please report a bug!");
-        let store = guard
-            .get(self.index)
-            .expect("Missing weak ref at credential search: please report a bug!")
-            .upgrade()
-            .expect("Missing store at credential search: please report a bug!");
+        let store = self.get_store();
         for pair in self.creds.iter() {
             if !svc.is_match(pair.key().service.as_str()) {
                 continue;

@@ -28,19 +28,19 @@ pub trait CredentialApi {
 
     /// Set the underlying credential's protected data to be the given byte array.
     ///
-    /// Expected behavior:
-    ///
-    /// - If the entry has no underlying credential:
-    ///   - If the entry is a specifier, create a credential and save the data in it.
-    ///   - If the entry is a wrapper, return a [NoEntry](Error::NoEntry) error.
-    /// - If the entry has exactly one associated credential,
-    ///   this will update the data saved in that credential.
-    /// - If the entry has multiple associated credentials,
+    /// - If the password cannot be stored in a credential,
+    ///   return an [Invalid](Error::Invalid) error.
+    /// - If the entry is a specifier, and there is no matching credential,
+    ///   create a matching credential and save the data in it.
+    /// - If the entry is a specifier, and there is more than one matching credential,
     ///   return an [Ambiguous](Error::Ambiguous) error.
+    /// - If the entry is a wrapper, and the wrapped credential has been deleted,
+    ///   either recreate the wrapped credential and set its value or
+    ///   return a [NoEntry](Error::NoEntry) error.
+    /// - Otherwise, set the value of the single, matching credential.
     ///
-    /// Note: The API allows passwords to be empty. If a store does not support
-    /// empty passwords, and one is specified,
-    /// return an [Invalid](Error::Invalid) error.
+    /// Note: If an entry is both a specifier and a wrapper, it's up to the store
+    /// whether to recreate a deleted credential or to fail with a NoEntry error.
     fn set_secret(&self, secret: &[u8]) -> Result<()>;
 
     /// Retrieve the protected data as a UTF-8 string from the underlying credential.
@@ -56,15 +56,13 @@ pub trait CredentialApi {
 
     /// Retrieve the protected data as a byte array from the underlying credential.
     ///
-    /// Expected behavior:
-    ///
-    /// - If there is no associated credential for this entry,
+    /// - If the entry is a specifier, and there is no matching credential,
     ///   return a [NoEntry](Error::NoEntry) error.
-    /// - If there is exactly one associated credential for this entry,
-    ///   return its protected data.
-    /// - If there are multiple associated credentials for this entry,
-    ///   return an [Ambiguous](Error::Ambiguous) error whose data
-    ///   is a list of entries each of which wraps one of the credentials.
+    /// - If the entry is a specifier, and there is more than one matching credential,
+    ///   return an [Ambiguous](Error::Ambiguous) error.
+    /// - If the entry is a wrapper, and the wrapped credential has been deleted,
+    ///   return a [NoEntry](Error::NoEntry) error.
+    /// - Otherwise, return the value of the single, matching credential.
     fn get_secret(&self) -> Result<Vec<u8>>;
 
     /// Return any store-specific decorations on this entry's credential.
@@ -73,8 +71,8 @@ pub trait CredentialApi {
     /// [get_secret](CredentialApi::get_secret), which see.
     ///
     /// For convenience, a default implementation of this method is
-    /// provided which doesn't return any decorations. Credential
-    /// store implementations which support decorations should
+    /// provided which doesn't return any attributes. Credential
+    /// store implementations which support attributes should
     /// override this method.
     fn get_attributes(&self) -> Result<HashMap<String, String>> {
         // this should err in the same cases as get_secret, so first call that for effect
@@ -85,19 +83,18 @@ pub trait CredentialApi {
 
     /// Update the secure store attributes on this entry's credential.
     ///
-    /// Each credential store may support reading and updating different
-    /// named attributes; see the documentation on each of the stores
-    /// for details. The implementation will ignore any attribute names
-    /// that you supply that are not available for update. Because the
-    /// names used by the different stores tend to be distinct, you can
-    /// write cross-platform code that will work correctly on each platform.
+    /// If the user supplies any attributes that cannot be updated,
+    /// return an appropriate [Invalid](Error::Invalid) error.
     ///
-    /// We provide a default no-op implementation of this method.
+    /// Other expected error and success cases are the same as with
+    /// [get_secret](CredentialApi::get_secret), which see.
+    ///
+    /// For convenience, a default implementation of this method is
+    /// provided which returns a [NotSupportedByStore](Error::NotSupportedByStore) error.
     fn update_attributes(&self, _: &HashMap<&str, &str>) -> Result<()> {
-        // this should err in the same cases as get_secret, so first call that for effect
-        self.get_secret()?;
-        // if we got this far, return success after setting no attributes
-        Ok(())
+        Err(Error::NotSupportedByStore(String::from(
+            "No attributes can be updated",
+        )))
     }
 
     /// Delete the underlying credential.
@@ -152,7 +149,7 @@ impl std::fmt::Debug for Credential {
 /// A descriptor for the lifetime of stored credentials, returned from
 /// a credential store's [persistence](CredentialStoreApi::persistence) call.
 ///
-/// This enum may change even in patch versions of the library, so it's
+/// This enum may change even in minor and patch versions of the library, so it's
 /// marked as non-exhaustive.
 #[non_exhaustive]
 pub enum CredentialPersistence {
@@ -173,20 +170,29 @@ pub enum CredentialPersistence {
 
 /// The API that [credential stores](CredentialStore) implement.
 pub trait CredentialStoreApi {
-    /// The name of the "vendor" that provided this store.
+    /// The name of the "vendor" that provides this store.
     ///
     /// This allows clients to conditionalize their code for specific vendors.
+    /// This string should not vary with versions of the store. It's recommended
+    /// that it include the crate URL for the module provider.
     fn vendor(&self) -> String;
 
     /// The ID of this credential store instance.
     ///
-    /// IDs need not be unique across vendors or processes, but if two
-    /// stores from the same vendor in the same process have the same ID,
-    /// then they are the same store.
+    /// IDs need not be unique across vendors or processes, but they
+    /// serve as instance IDs within a process.  If two credential store
+    /// instances in a process have the same vendor and id,
+    /// then they are the same instance.
+    ///
+    /// It's recommended that this include the version of the provider.
     fn id(&self) -> String;
 
     /// Create an entry specified by the given service and user,
-    /// perhaps with additional creation-time options.
+    /// perhaps with additional creation-time modifiers.
+    ///
+    /// The credential returned from this call must be a specifier,
+    /// meaning that it can be used to create a credential later
+    /// even if a matching credential existed in the store .
     ///
     /// This typically has no effect on the content of the underlying store.
     /// A credential need not be persisted until its password is set.
@@ -194,7 +200,7 @@ pub trait CredentialStoreApi {
         &self,
         service: &str,
         user: &str,
-        options: Option<&HashMap<&str, &str>>,
+        modifiers: Option<&HashMap<&str, &str>>,
     ) -> Result<Entry>;
 
     /// Search for credentials that match the given spec.
