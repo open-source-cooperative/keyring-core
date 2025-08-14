@@ -33,6 +33,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub mod api;
+pub mod attributes;
 pub mod error;
 
 pub mod mock;
@@ -62,11 +63,20 @@ static DEFAULT_STORE: std::sync::RwLock<DefaultStore> =
 /// to complete what they are doing. It's really meant to be called
 /// at startup before creating any entries.
 pub fn set_default_store(new: Arc<CredentialStore>) {
-    debug!("setting default credential store to {new:?}");
+    debug!("setting the default credential store to {new:?}");
     let mut guard = DEFAULT_STORE
         .write()
         .expect("Poisoned RwLock in keyring_core::set_default_store: please report a bug!");
     guard.inner = Some(new);
+}
+
+/// Get the default credential store.
+pub fn get_default_store() -> Option<Arc<CredentialStore>> {
+    debug!("getting the default credential store");
+    let guard = DEFAULT_STORE
+        .read()
+        .expect("Poisoned RwLock in keyring_core::get_default_store: please report a bug!");
+    guard.inner.clone()
 }
 
 // Release the default credential store.
@@ -77,7 +87,7 @@ pub fn set_default_store(new: Arc<CredentialStore>) {
 // your credential store never to be released, which may have
 // unintended side effects.
 pub fn unset_default_store() -> Option<Arc<CredentialStore>> {
-    debug!("unset the default credential store");
+    debug!("unsetting the default credential store");
     let mut guard = DEFAULT_STORE
         .write()
         .expect("Poisoned RwLock in keyring_core::unset_default_store: please report a bug!");
@@ -104,7 +114,7 @@ pub struct Entry {
 }
 
 impl Entry {
-    /// Create an entry for the given service and user.
+    /// Create an entry for the given `service` and `user`.
     ///
     /// The default credential builder is used.
     ///
@@ -123,7 +133,7 @@ impl Entry {
         Ok(entry)
     }
 
-    /// Create an entry for the given service and user, passing store-specific modifiers.
+    /// Create an entry for the given `service` and `user`, passing store-specific modifiers.
     ///
     /// The default credential builder is used.
     ///
@@ -149,18 +159,6 @@ impl Entry {
         Ok(entry)
     }
 
-    /// Create an entry for the given target modifier, service, and user.
-    ///
-    /// This is just a convenience wrapper for [new_with_modifiers](Entry::new_with_modifiers)
-    /// that specifies only the `target` modifier.  It is provided for legacy compatibility.
-    pub fn new_with_target(target: &str, service: &str, user: &str) -> Result<Entry> {
-        debug!("creating entry with service {service}, user {user}, and target {target}");
-        let map = HashMap::from([("target", target)]);
-        let entry = build_default_credential(service, user, Some(&map))?;
-        debug!("created entry {:?}", entry.inner);
-        Ok(entry)
-    }
-
     /// Create an entry that wraps a pre-existing credential. The credential can
     /// be from any credential store.
     pub fn new_with_credential(credential: Arc<Credential>) -> Entry {
@@ -180,7 +178,7 @@ impl Entry {
     ///
     /// Returns a [NoDefaultStore][Error::NoDefaultStore] error
     /// if the default credential store has not been set.
-    pub fn search_for_credentials(spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
+    pub fn search(spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
         debug!("searching for {spec:?}");
         let guard = DEFAULT_STORE.read().expect(
             "Poisoned RwLock in keyring-core::search_for_credentials: please report a bug!",
@@ -199,12 +197,13 @@ impl Entry {
     ///
     /// # Errors
     ///
+    /// If this entry is a specifier,
+    /// and there is more than one matching credential in the store,
+    /// returns an [Ambiguous](Error::Ambiguous) error.
+    ///
     /// If this entry is a wrapper, and the
     /// underlying credential has been deleted,
     /// may return a [NoEntry](Error::NoEntry) error.
-    ///
-    /// Returns an [Ambiguous](Error::Ambiguous) error
-    /// if there is more than one matching credential.
     ///
     /// If a credential cannot store the given password (not
     /// all stores support empty passwords, and some have length limits),
@@ -222,12 +221,13 @@ impl Entry {
     ///
     /// # Errors
     ///
+    /// If this entry is a specifier,
+    /// and there is more than one matching credential in the store,
+    /// returns an [Ambiguous](Error::Ambiguous) error.
+    ///
     /// If this entry is a wrapper, and the
     /// underlying credential has been deleted,
     /// may return a [NoEntry](Error::NoEntry) error.
-    ///
-    /// Returns an [Ambiguous](Error::Ambiguous) error
-    /// if there is more than one matching credential.
     ///
     /// If a credential cannot store the given password (not
     /// all stores support empty passwords, and some have length limits),
@@ -241,11 +241,18 @@ impl Entry {
     ///
     /// # Errors
     ///
-    /// Returns a [NoEntry](Error::NoEntry) error if there is no
-    /// matching credential.
+    /// If this entry is a specifier,
+    /// and there is no matching credential in the store,
+    /// returns a [NoEntry](Error::NoEntry) error.
     ///
-    /// Returns an [Ambiguous](Error::Ambiguous) error
-    /// if there is more than one matching credential.
+    /// If this entry is a specifier,
+    /// and there is more than one matching credential in the store,
+    /// returns an [Ambiguous](Error::Ambiguous) error.
+    ///
+    /// If this entry is a wrapper,
+    /// the underlying credential has been deleted,
+    /// and the store cannot recreate it,
+    /// returns a [NoEntry](Error::NoEntry) error.
     ///
     /// Will return a [BadEncoding](Error::BadEncoding) error
     /// containing the data as a byte array if the password is
@@ -259,11 +266,17 @@ impl Entry {
     ///
     /// # Errors
     ///
-    /// Returns a [NoEntry](Error::NoEntry) error if there is no
-    /// matching credential.
+    /// If this entry is a specifier,
+    /// and there is no matching credential in the store,
+    /// returns a [NoEntry](Error::NoEntry) error.
     ///
-    /// Returns an [Ambiguous](Error::Ambiguous) error
-    /// if there is more than one matching credential.
+    /// If this entry is a specifier,
+    /// and there is more than one matching credential in the store,
+    /// returns an [Ambiguous](Error::Ambiguous) error.
+    ///
+    /// If this entry is a wrapper,
+    /// and the underlying credential has been deleted,
+    /// returns a [NoEntry](Error::NoEntry) error.
     pub fn get_secret(&self) -> Result<Vec<u8>> {
         debug!("get secret from entry {:?}", self.inner);
         self.inner.get_secret()
@@ -277,11 +290,17 @@ impl Entry {
     ///
     /// # Errors
     ///
-    /// Returns a [NoEntry](Error::NoEntry) error if there is no
-    /// matching credential.
+    /// If this entry is a specifier,
+    /// and there is no matching credential in the store,
+    /// returns a [NoEntry](Error::NoEntry) error.
     ///
-    /// Returns an [Ambiguous](Error::Ambiguous) error
-    /// if there is more than one matching credential.
+    /// If this entry is a specifier,
+    /// and there is more than one matching credential in the store,
+    /// returns an [Ambiguous](Error::Ambiguous) error.
+    ///
+    /// If this entry is a wrapper,
+    /// and the underlying credential has been deleted,
+    /// returns a [NoEntry](Error::NoEntry) error.
     pub fn get_attributes(&self) -> Result<HashMap<String, String>> {
         debug!("get attributes from entry {:?}", self.inner);
         self.inner.get_attributes()
@@ -295,11 +314,20 @@ impl Entry {
     ///
     /// # Errors
     ///
-    /// Returns a [NoEntry](Error::NoEntry) error if there is no
-    /// matching credential.
+    /// If one of the attributes supplied is not valid for the underlying store,
+    /// returns an [Invalid](Error::Invalid) error.
     ///
-    /// Returns an [Ambiguous](Error::Ambiguous) error
-    /// if there is more than one matching credential.
+    /// If this entry is a specifier,
+    /// and there is no matching credential in the store,
+    /// returns a [NoEntry](Error::NoEntry) error.
+    ///
+    /// If this entry is a specifier,
+    /// and there is more than one matching credential in the store,
+    /// returns an [Ambiguous](Error::Ambiguous) error.
+    ///
+    /// If this entry is a wrapper,
+    /// and the underlying credential has been deleted,
+    /// returns a [NoEntry](Error::NoEntry) error.
     pub fn update_attributes(&self, attributes: &HashMap<&str, &str>) -> Result<()> {
         debug!(
             "update attributes for entry {:?} from map {attributes:?}",
@@ -310,17 +338,22 @@ impl Entry {
 
     /// Delete the matching credential for this entry.
     ///
+    /// This call does _not_ affect the lifetime of the [Entry]
+    /// structure, only that of the underlying credential.
+    ///
     /// # Errors
     ///
-    /// Returns a [NoEntry](Error::NoEntry) error if there is no
-    /// matching credential.
+    /// If this entry is a specifier,
+    /// and there is no matching credential in the store,
+    /// returns a [NoEntry](Error::NoEntry) error.
     ///
-    /// Returns an [Ambiguous](Error::Ambiguous) error
-    /// if there is more than one matching credential.
+    /// If this entry is a specifier,
+    /// and there is more than one matching credential in the store,
+    /// returns an [Ambiguous](Error::Ambiguous) error.
     ///
-    /// Note: This does _not_ affect the lifetime of the [Entry]
-    /// structure, which is controlled by Rust.  It only
-    /// affects the underlying credential store.
+    /// If this entry is a wrapper,
+    /// and the underlying credential has been deleted,
+    /// returns a [NoEntry](Error::NoEntry) error.
     pub fn delete_credential(&self) -> Result<()> {
         debug!("delete entry {:?}", self.inner);
         self.inner.delete_credential()
@@ -330,11 +363,17 @@ impl Entry {
     ///
     /// # Errors
     ///
-    /// Returns a [NoEntry](Error::NoEntry) error if there is no
-    /// matching credential.
+    /// If this entry is a specifier,
+    /// and there is no matching credential in the store,
+    /// returns a [NoEntry](Error::NoEntry) error.
     ///
-    /// Returns an [Ambiguous](Error::Ambiguous) error
-    /// if there is more than one matching credential.
+    /// If this entry is a specifier,
+    /// and there is more than one matching credential in the store,
+    /// returns an [Ambiguous](Error::Ambiguous) error.
+    ///
+    /// If this entry is a wrapper,
+    /// and the underlying credential has been deleted,
+    /// returns a [NoEntry](Error::NoEntry) error.
     pub fn get_credential(&self) -> Result<Entry> {
         debug!("get credential for entry {:?}", self.inner);
         match self.inner.get_credential() {

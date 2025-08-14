@@ -5,10 +5,10 @@ credential store" combination and published as the [keyring](https://crates.io/c
 currently maintained by [Dan Brotsky](https://github.com/brotskydotcom), has now evolved to be a keyring-core CLI
 application and compendium of compatible credential stores.
 
-All of the contributors listed here are listed by their GitHub monikers, with an `@` in front. The direct link for
+All the contributors listed here are listed by their GitHub monikers, with an `@` in front. The direct link for
 `@foo` would be `https://github.com/foo`.
 
-If you should be listed in this file, but don't find yourself, please contact @brotskydotcom.
+If you should be listed in this file but don't find yourself, please contact @brotskydotcom.
 
 ## Keyring-Core Contributors
 

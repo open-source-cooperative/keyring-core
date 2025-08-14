@@ -29,7 +29,7 @@ to it is released). The backing file is only read when a store is first created.
 
 This store supports ambiguity, that is, the ability to create
 multiple credentials associated with the same service name
-and username. If you specify the `target` modifier when
+and username. If you specify the `force-create` modifier when
 creating an entry, a new credential with an empty password
 will be created immediately for the specified service name and username.
 
@@ -39,10 +39,10 @@ will be created immediately for the specified service name and username.
 * If there _was_ an existing credential for your service name and username,
   then the returned entry will be ambiguous.
 
-In all cases, the use of the `target` modifier will cause
+In all cases, the use of the `force-create` modifier will cause
 the created credential to have two additional attributes:
 
-* *creation_date*, an HTTP-style date showing when the
+* *creation-date*, an HTTP-style date showing when the
   credential was created. This cannot be updated, nor
   can it be added to credentials that don't have it.
 * *comment*, the string value of the `target` modifier.
@@ -72,6 +72,10 @@ pretty quickly.
  */
 
 pub mod credential;
+pub use credential::CredKey;
+
 pub mod store;
+pub use store::Store;
+
 #[cfg(test)]
 mod test;

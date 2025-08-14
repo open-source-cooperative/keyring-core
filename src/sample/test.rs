@@ -1,16 +1,35 @@
-use super::credential::{CredId, CredKey};
-use super::store::{CredValue, Store};
-use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
-use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::{Arc, Once};
+
+use dashmap::DashMap;
 use uuid::Uuid;
+
+use super::credential::{CredId, CredKey};
+use super::store::{CredValue, Store};
+use crate::{CredentialStore, Entry, Error, api::CredentialPersistence, get_default_store};
 
 static SET_STORE: Once = Once::new();
 
 fn usually_goes_in_main() {
     let _ = env_logger::builder().is_test(true).try_init();
-    crate::set_default_store(Store::new());
+    crate::set_default_store(Store::new().unwrap());
+}
+
+#[test]
+fn test_store_methods() {
+    SET_STORE.call_once(usually_goes_in_main);
+    let store = get_default_store().unwrap();
+    let vendor1 = store.vendor();
+    let id1 = store.id();
+    let vendor2 = store.vendor();
+    let id2 = store.id();
+    assert_eq!(vendor1, vendor2);
+    assert_eq!(id1, id2);
+    let store2: Arc<CredentialStore> = Store::new().unwrap();
+    let vendor3 = store2.vendor();
+    let id3 = store2.id();
+    assert_eq!(vendor1, vendor3);
+    assert_ne!(id1, id3);
 }
 
 fn entry_new(service: &str, user: &str) -> Entry {
@@ -184,11 +203,14 @@ fn test_get_update_attributes() {
     entry1.set_password("password for entry1").unwrap();
     let attrs = entry1.get_attributes().unwrap();
     assert_eq!(attrs.len(), 1); // uuid
-    let no_op_map = HashMap::from([("foo", "bar")]);
-    let forbidden_map1 = HashMap::from([("creation_date", "doesn't matter")]);
+    let unknown_map = HashMap::from([("foo", "bar")]);
+    let forbidden_map1 = HashMap::from([("creation-date", "doesn't matter")]);
     let forbidden_map2 = HashMap::from([("uuid", "doesn't matter")]);
     let comment_map = HashMap::from([("comment", "some comment")]);
-    assert!(matches!(entry1.update_attributes(&no_op_map), Ok(())));
+    assert!(matches!(
+        entry1.update_attributes(&unknown_map),
+        Err(Error::Invalid(_, _))
+    ));
     assert!(matches!(
         entry1.update_attributes(&forbidden_map1),
         Err(Error::Invalid(_, _))
@@ -203,12 +225,13 @@ fn test_get_update_attributes() {
         "some comment"
     );
     entry1.delete_credential().unwrap();
-    let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry2")]));
+    let entry2 =
+        entry_new_with_modifiers(&name, &name, &HashMap::from([("force-create", "entry2")]));
     assert_eq!(entry2.get_password().unwrap(), "");
     let attrs = entry2.get_attributes().unwrap();
     assert_eq!(attrs.len(), 3); // uuid, creation date, comment
     assert_eq!(attrs.get("comment").unwrap(), "entry2");
-    assert!(attrs.contains_key("creation_date"));
+    assert!(attrs.contains_key("creation-date"));
     entry2.update_attributes(&comment_map).unwrap();
     assert_eq!(
         entry2.get_attributes().unwrap().get("comment").unwrap(),
@@ -236,7 +259,7 @@ fn test_get_credential_and_specifiers() {
 
 #[test]
 fn test_with_unique_credential_helper() {
-    let store: Arc<Store> = Store::new();
+    let store: Arc<Store> = Store::new().unwrap();
     // test NoEntry
     {
         let name = generate_random_string();
@@ -306,11 +329,13 @@ fn test_with_unique_credential_helper() {
 #[test]
 fn test_credential_and_ambiguous_credential() {
     let name = generate_random_string();
-    let entry1 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry1")]));
+    let entry1 =
+        entry_new_with_modifiers(&name, &name, &HashMap::from([("force-create", "entry1")]));
     entry1.set_password("password for entry1").unwrap();
     let credential1: &CredKey = entry1.as_any().downcast_ref().unwrap();
     assert!(credential1.uuid.is_none());
-    let entry2 = entry_new_with_modifiers(&name, &name, &HashMap::from([("target", "entry2")]));
+    let entry2 =
+        entry_new_with_modifiers(&name, &name, &HashMap::from([("force-create", "entry2")]));
     let credential2: &CredKey = entry2.as_any().downcast_ref().unwrap();
     assert!(credential2.uuid.is_none());
     let err1 = entry1.set_password("password for entry1");
@@ -477,7 +502,7 @@ fn test_simultaneous_multiple_create_delete_single_thread() {
 
 #[test]
 fn test_search() {
-    let store: Arc<CredentialStore> = Store::new();
+    let store: Arc<CredentialStore> = Store::new().unwrap();
     let all = store.search(&HashMap::from([])).unwrap();
     assert!(all.is_empty());
     let all = store
@@ -500,7 +525,7 @@ fn test_search() {
         .build(
             "foo",
             "bar",
-            Some(&HashMap::from([("target", "foo bar again")])),
+            Some(&HashMap::from([("force-create", "foo bar again")])),
         )
         .unwrap();
     let one = store.search(&HashMap::from([("comment", ".+")])).unwrap();
@@ -529,7 +554,7 @@ fn test_search() {
 
 #[test]
 fn test_persistence_no_backing() {
-    let store: Arc<CredentialStore> = Store::new();
+    let store: Arc<CredentialStore> = Store::new().unwrap();
     assert!(matches!(
         store.persistence(),
         CredentialPersistence::ProcessOnly
