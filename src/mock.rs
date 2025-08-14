@@ -235,7 +235,7 @@ impl CredentialStoreApi for Store {
         user: &str,
         mods: Option<&HashMap<&str, &str>>,
     ) -> Result<Entry> {
-        if mods.is_some_and(|m| m.len() > 0) {
+        if mods.is_some_and(|m| !m.is_empty()) {
             return Err(Error::NotSupportedByStore(
                 "The mock store doesn't allow modifiers".to_string(),
             ));
