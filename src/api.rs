@@ -92,7 +92,9 @@ pub trait CredentialApi {
     /// For convenience, a default implementation of this method is
     /// provided which returns a [NotSupportedByStore](Error::NotSupportedByStore) error.
     fn update_attributes(&self, _: &HashMap<&str, &str>) -> Result<()> {
-        Err(Error::NotSupportedByStore(String::from("No attributes can be updated")))
+        Err(Error::NotSupportedByStore(String::from(
+            "No attributes can be updated",
+        )))
     }
 
     /// Delete the underlying credential.
