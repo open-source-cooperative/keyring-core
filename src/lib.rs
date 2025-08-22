@@ -79,13 +79,13 @@ pub fn get_default_store() -> Option<Arc<CredentialStore>> {
     guard.inner.clone()
 }
 
-// Release the default credential store.
-//
-// This returns the old value for the default credential store
-// and forgets what it was. Since the default credential store
-// is kept in a static variable, not releasing it will cause
-// your credential store never to be released, which may have
-// unintended side effects.
+/// Release the default credential store.
+///
+/// This returns the old value for the default credential store
+/// and forgets what it was. Since the default credential store
+/// is kept in a static variable, not releasing it will cause
+/// your credential store never to be released, which may have
+/// unintended side effects.
 pub fn unset_default_store() -> Option<Arc<CredentialStore>> {
     debug!("unsetting the default credential store");
     let mut guard = DEFAULT_STORE
@@ -108,6 +108,7 @@ fn build_default_credential(
     }
 }
 
+/// A named entry in a credential store.
 #[derive(Debug)]
 pub struct Entry {
     inner: Arc<Credential>,

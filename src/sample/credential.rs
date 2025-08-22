@@ -150,7 +150,7 @@ impl CredentialApi for CredKey {
     ///
     /// Only the `comment` attribute can be updated.
     fn update_attributes(&self, attrs: &HashMap<&str, &str>) -> Result<()> {
-        parse_attributes(&["comment"], attrs)?;
+        parse_attributes(&["comment"], Some(attrs))?;
         self.with_unique_cred(|cred| update_attrs(cred, attrs))
     }
 

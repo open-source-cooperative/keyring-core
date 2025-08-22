@@ -26,8 +26,6 @@ jobs:
         run: cargo clippy --no-deps --all-targets --all-features -- -D warnings
 
       - name: Build and Test
-        env:
-          RUST_LOG: debug
         run: cargo test --all-features --verbose
 
       - name: Build examples
@@ -47,4 +45,4 @@ jobs:
           components: clippy
 
       - name: Clippy check
-        run: cargo clippy --features=sample -- -D warnings
+        run: cargo clippy --no-deps --all-targets --all-features -- -D warnings

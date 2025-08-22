@@ -107,8 +107,8 @@ impl Store {
     /// The only allowed configuration option is the path to the backing file,
     /// which should be the value of the `backing_file` key in the config map.
     /// See [new_with_backing](Store::new_with_backing) for details.
-    pub fn new_with_config(config: HashMap<&str, &str>) -> Result<Arc<Self>> {
-        match parse_attributes(&["backing_file"], &config)?.get("backing_file") {
+    pub fn new_with_configuration(config: &HashMap<&str, &str>) -> Result<Arc<Self>> {
+        match parse_attributes(&["backing_file"], Some(config))?.get("backing_file") {
             Some(path) => Self::new_with_backing(path),
             None => Self::new(),
         }
@@ -237,10 +237,7 @@ impl CredentialStoreApi for Store {
             id: id.clone(),
             uuid: None,
         };
-        if let Some(force_create) =
-            parse_attributes(&["force-create"], mods.unwrap_or(&HashMap::new()))?
-                .get("force-create")
-        {
+        if let Some(force_create) = parse_attributes(&["force-create"], mods)?.get("force-create") {
             let uuid = Uuid::new_v4().to_string();
             let value = CredValue::new_ambiguous(force_create);
             match self.creds.get(&id) {
