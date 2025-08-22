@@ -9,10 +9,13 @@ use crate::{Error::Invalid, Result};
 
 pub fn parse_attributes(
     keys: &[&str],
-    attrs: &HashMap<&str, &str>,
+    attrs: Option<&HashMap<&str, &str>>,
 ) -> Result<HashMap<String, String>> {
     let mut result: HashMap<String, String> = HashMap::new();
-    for (key, value) in attrs {
+    if attrs.is_none() {
+        return Ok(result);
+    }
+    for (key, value) in attrs.unwrap() {
         if keys.contains(key) {
             result.insert(key.to_string(), value.to_string());
         } else {
