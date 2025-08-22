@@ -7,6 +7,9 @@ use std::collections::HashMap;
 
 use crate::{Error::Invalid, Result};
 
+/// Parse an optional key-value &str map for allowed keys, returning a map of owned strings.
+///
+/// Returns an [Invalid] error if not all keys are allowed.
 pub fn parse_attributes(
     keys: &[&str],
     attrs: Option<&HashMap<&str, &str>>,
@@ -25,6 +28,7 @@ pub fn parse_attributes(
     Ok(result)
 }
 
+/// Convert a borrowed key-value map of borrowed strings to an owned map of owned strings.
 pub fn externalize_attributes(attrs: &HashMap<&str, &str>) -> HashMap<String, String> {
     attrs
         .iter()
