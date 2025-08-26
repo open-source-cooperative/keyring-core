@@ -1,6 +1,6 @@
 ## Keyring Core
 
-[![build](https://github.com/open-source-cooperative/keyring-core/actions/workflows/ci.yaml/badge.svg)](https://github.com/open-source-cooperative/keyring-core/actions) [![dependencies](https://deps.rs/repo/github/open-source-cooperative/keyring-core/status.svg)](https://deps.rs/repo/github/open-source-cooperative/keyring-core) [![crates.io](https://img.shields.io/crates/v/keyring-core.svg?style=flat-square)](https://crates.io/crates/keyring-core) [![docs.rs](https://docs.rs/keyring-core/badge.svg)](https://docs.rs/keyring-core)
+[![build](https://github.com/open-source-cooperative/keyring-core/actions/workflows/ci.yaml/badge.svg)](https://github.com/open-source-cooperative/keyring-core/actions) [![crates.io](https://img.shields.io/crates/v/keyring-core.svg?style=flat-square)](https://crates.io/crates/keyring-core) [![docs.rs](https://docs.rs/keyring-core/badge.svg)](https://docs.rs/keyring-core)
 
 This crate, `keyring-core`, is part of the [Keyring ecosystem](https://github.com/open-source-cooperative/keyring-core/wiki/Keyring). It provides a cross-platform library to manage storage and retrieval of passwords (and other secrets) in secure credential stores, as used by the [keyring application](https://crates.io/crates/keyring). If you are a developer looking to integrate secret-management facilities into your app, this is the crate you should use as a dependency, along with one or more keyring-compatible credential-stores.
 
