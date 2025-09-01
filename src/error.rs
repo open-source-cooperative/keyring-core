@@ -12,6 +12,8 @@ is not much of a burden on the platform-specific store providers.)
 
 use crate::Entry;
 
+pub type PlatformError = Box<dyn std::error::Error + Send + Sync>;
+
 #[derive(Debug)]
 /// Each variant of the `Error` enum provides a summary of the error.
 /// More details, if relevant, are contained in the associated value,
@@ -25,13 +27,13 @@ pub enum Error {
     /// This indicates runtime failure in the underlying
     /// platform storage system.  The details of the failure can
     /// be retrieved from the attached platform error.
-    PlatformFailure(Box<dyn std::error::Error + Send + Sync>),
+    PlatformFailure(PlatformError),
     /// This indicates that the underlying secure storage
     /// holding saved items could not be accessed.  Typically, this
     /// is because of access rules in the platform; for example, it
     /// might be that the credential store is locked.  The underlying
     /// platform error will typically give the reason.
-    NoStorageAccess(Box<dyn std::error::Error + Send + Sync>),
+    NoStorageAccess(PlatformError),
     /// This indicates that there is no underlying credential
     /// entry in the platform for this entry.  Either one was
     /// never set, or it was deleted.
@@ -40,6 +42,12 @@ pub enum Error {
     /// a UTF-8 string.  The underlying bytes are available
     /// for examination in the attached value.
     BadEncoding(Vec<u8>),
+    /// This indicates that the retrieved secret blob was not
+    /// formatted as expected by the store. (Some stores perform
+    /// encryption or other transformations when storing secrets.)
+    /// The raw data of the retrieved blob are attached, as is
+    /// an underlying error indicating what went wrong.
+    BadDataFormat(Vec<u8>, PlatformError),
     /// This indicates that one of the entry's credential
     /// attributes exceeded a
     /// length limit in the underlying platform.  The
@@ -73,9 +81,12 @@ impl std::fmt::Display for Error {
             }
             Error::NoEntry => write!(f, "No matching entry found in secure storage"),
             Error::BadEncoding(_) => write!(f, "Data is not UTF-8 encoded"),
+            Error::BadDataFormat(_, err) => {
+                write!(f, "Data is not in the expected format: {err:?}")
+            }
             Error::TooLong(name, len) => write!(
                 f,
-                "Attribute '{name}' is longer than platform limit of {len} chars"
+                "Attribute '{name}' is longer than the platform limit of {len} chars"
             ),
             Error::Invalid(attr, reason) => {
                 write!(f, "Attribute {attr} is invalid: {reason}")
@@ -90,14 +101,11 @@ impl std::fmt::Display for Error {
             Error::NoDefaultStore => {
                 write!(
                     f,
-                    "No default credential builder is available; set one before creating entries"
+                    "No default store has been set, so cannot search or create entries"
                 )
             }
             Error::NotSupportedByStore(vendor) => {
-                write!(
-                    f,
-                    "The requested store (vendor: {vendor}) does not support this operation",
-                )
+                write!(f, "The store ({vendor}) does not support this operation",)
             }
         }
     }
@@ -108,6 +116,7 @@ impl std::error::Error for Error {
         match self {
             Error::PlatformFailure(err) => Some(err.as_ref()),
             Error::NoStorageAccess(err) => Some(err.as_ref()),
+            Error::BadDataFormat(_, err) => Some(err.as_ref()),
             _ => None,
         }
     }
