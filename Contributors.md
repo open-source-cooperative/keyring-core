@@ -25,6 +25,7 @@ Thanks to the following for helping make the original keyring crate better, whet
 discussion, or bug reports!
 
 - @Alexei-Barnes
+- @Andrepuel
 - @benwr
 - @bhkaminski
 - @Brooooooklyn
