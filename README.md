@@ -49,6 +49,10 @@ There are some changes in the API relative to that in the [keyring crate v3](htt
 * The `new_with_target` API has been replaced by `new_with_modifiers`, where `target` is just one of the possible keys in the modifiers map. Check your credential store to see if `target` is accepted as a modifier key.
 * The new API exposes credential search and returns entries for all the matching credentials. Many thanks to @wiimmers for showing the way with his [keyring-search](https://crates.io/crates/keyring-search) crate. I am hoping he will integrate his search facilities into all the new credential stores.
 
+## Changelog
+
+See the [release history on GitHub](https://github.com/open-source-cooperative/keyring-core/releases) for full details.
+
 ## License
 
 Licensed under either of

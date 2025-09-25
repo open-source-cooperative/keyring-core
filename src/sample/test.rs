@@ -65,7 +65,7 @@ fn test_round_trip_no_delete(case: &str, entry: &Entry, in_pass: &str) {
         .unwrap_or_else(|err| panic!("Can't set password for {case}: {err:?}"));
     let out_pass = entry
         .get_password()
-        .unwrap_or_else(|err| panic!("Can't get password for {case}: {err:?}"));
+        .unwrap_or_else(|err| panic!("Can't get the password for {case}: {err:?}"));
     assert_eq!(
         in_pass, out_pass,
         "Passwords don't match for {case}: set='{in_pass}', get='{out_pass}'",
@@ -77,11 +77,11 @@ fn test_round_trip(case: &str, entry: &Entry, in_pass: &str) {
     test_round_trip_no_delete(case, entry, in_pass);
     entry
         .delete_credential()
-        .unwrap_or_else(|err| panic!("Can't delete password for {case}: {err:?}"));
+        .unwrap_or_else(|err| panic!("Can't delete the password for {case}: {err:?}"));
     let password = entry.get_password();
     assert!(
         matches!(password, Err(Error::NoEntry)),
-        "Read deleted password for {case}",
+        "Read a deleted password for {case}",
     );
 }
 
@@ -103,14 +103,14 @@ pub fn test_round_trip_secret(case: &str, entry: &Entry, in_secret: &[u8]) {
     let secret = entry.get_secret();
     assert!(
         matches!(secret, Err(Error::NoEntry)),
-        "Read deleted password for {case}",
+        "Read a deleted password for {case}",
     );
 }
 
 #[test]
 fn test_empty_service_and_user() {
     let name = generate_random_string();
-    let in_pass = "doesn't matter";
+    let in_pass = "it doesn't matter";
     test_round_trip("empty user", &entry_new(&name, ""), in_pass);
     test_round_trip("empty service", &entry_new("", &name), in_pass);
     test_round_trip("empty service & user", &entry_new("", ""), in_pass);
