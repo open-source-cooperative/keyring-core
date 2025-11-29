@@ -26,11 +26,20 @@ pub struct CredId {
 /// that ID in the store and a password is set. All keys with
 /// indices higher than 0 are wrappers for a specific credential,
 /// but they do not _specify_ a credential.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CredKey {
     pub store: Arc<Store>,
     pub id: CredId,
     pub uuid: Option<String>,
+}
+
+impl std::fmt::Debug for CredKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CredKey")
+            .field("id", &self.id)
+            .field("uuid", &self.uuid)
+            .finish()
+    }
 }
 
 impl CredKey {

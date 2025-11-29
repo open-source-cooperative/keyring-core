@@ -73,6 +73,7 @@ pub struct Store {
 impl std::fmt::Debug for Store {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Store")
+            .field("vendor", &self.vendor())
             .field("id", &self.id)
             .field("backing", &self.backing)
             .field("cred-count", &self.creds.len())
@@ -203,7 +204,7 @@ impl Store {
 impl CredentialStoreApi for Store {
     /// See the API docs.
     fn vendor(&self) -> String {
-        String::from("In-memory sample store, https://crates.io/crates/keyring-core")
+        String::from("Sample store, https://crates.io/crates/keyring-core")
     }
 
     /// See the API docs.
