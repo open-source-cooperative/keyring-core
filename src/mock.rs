@@ -194,10 +194,18 @@ impl Cred {
 /// for entries with the same service and user.
 /// Yes, a hashmap might be faster, but this is
 /// way simpler.
-#[derive(Debug)]
 pub struct Store {
     pub id: String,
     pub inner: Mutex<RefCell<Vec<Arc<Cred>>>>,
+}
+
+impl std::fmt::Debug for Store {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Store")
+            .field("vendor", &self.vendor())
+            .field("id", &self.id)
+            .finish()
+    }
 }
 
 impl Store {
@@ -218,7 +226,7 @@ impl Store {
 
 impl CredentialStoreApi for Store {
     fn vendor(&self) -> String {
-        String::from("Mock in-memory store, https://crates.io/crates/keyring-core")
+        String::from("Mock store, https://crates.io/crates/keyring-core")
     }
 
     fn id(&self) -> String {
