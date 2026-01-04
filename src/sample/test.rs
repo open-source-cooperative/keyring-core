@@ -592,11 +592,12 @@ fn test_persistence_with_backing_and_save() {
 #[test]
 fn test_persistence_with_backing_and_drop() {
     let path = std::env::temp_dir()
-        .join("store-drop-test.ron")
+        .join("keyring-sample-store.ron")
         .to_str()
         .unwrap()
         .to_string();
     _ = std::fs::remove_file(&path);
+    println!("Persistence test path is {path}");
     {
         let s1 = Store::new_with_backing(&path).unwrap();
         let cred_store: Arc<CredentialStore> = s1.clone();
@@ -610,6 +611,20 @@ fn test_persistence_with_backing_and_drop() {
         e2.set_password("pw2").unwrap();
         assert_eq!(s1.as_ref().creds.len(), 2);
     }
-    let s2 = Store::new_with_backing(&path).unwrap();
-    assert_eq!(s2.as_ref().creds.len(), 2);
+    {
+        let s1 = Store::new_with_backing(&path).unwrap();
+        assert_eq!(s1.as_ref().creds.len(), 2);
+    }
+    {
+        let s1 = Store::new_with_configuration(&HashMap::from([("persist", "true")])).unwrap();
+        assert_eq!(s1.as_ref().creds.len(), 2);
+        let store: Arc<CredentialStore> = s1.clone();
+        let e3 = store.build("s3", "u3", None).unwrap();
+        e3.set_password("pw3").unwrap();
+        assert_eq!(s1.as_ref().creds.len(), 3);
+    }
+    {
+        let s1 = Store::new_with_configuration(&HashMap::from([("persist", "true")])).unwrap();
+        assert_eq!(s1.as_ref().creds.len(), 3);
+    }
 }
