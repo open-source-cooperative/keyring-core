@@ -14,16 +14,25 @@ nor secure.
 
 # Persistence
 
-When creating an instance of this store, you specify whether you want to use a
-"backing file" to store credentials between runs (or to make them available to
-other applications). If you don't specify a backing file, this is an in-memory
-store only, and the credentials vanish when your application terminates.
+When creating an instance of this store, you specify whether you want the contents
+of the store to persist between runs (by default, they don't).  There are two
+ways to specify this:
 
-The "backing file" is _not_ kept up to date as credentials are created, deleted,
-or modified! The in-memory credentials are only saved to the backing file when
+- You can specify the `persist` modifier as `true`. In this case, the store will
+  be persisted in a file called `keyring-sample-store.ron` in the native platform
+  shared temporary directory.
+
+- You can specify the `backing-file` modifier with a path to a file. In this case,
+  the store will be persisted in the specified file. (If you specify the `backing-file`
+  modifier, the `persist` modifier is ignored.)
+
+_Buyer beware!_ A store's backing file is _not_ kept up to date as credentials are created,
+deleted, or modified in the store!
+The in-memory credentials are only saved to the backing file when
 explicitly requested or when a store is destroyed (that is, the last reference
-to it is released). The backing file is only read when a store is first created.
-(To read a backing file, you have to create a new store.)
+to it is released).
+The credential state saved in a backing file (if it exists from a prior run)
+is only loaded when a store using that file is first created.
 
 # Ambiguity
 

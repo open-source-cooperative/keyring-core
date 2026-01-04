@@ -105,13 +105,22 @@ impl Store {
 
     /// Create a new store with a user-specified configuration.
     ///
-    /// The only allowed configuration option is the path to the backing file,
-    /// which should be the value of the `backing_file` key in the config map.
-    /// See [new_with_backing](Store::new_with_backing) for details.
+    /// There are two allowed configuration keys: `persist` and `backing-file`. See
+    /// the module docs for details of how these affect the store's behavior.
     pub fn new_with_configuration(config: &HashMap<&str, &str>) -> Result<Arc<Self>> {
-        match parse_attributes(&["backing-file"], Some(config))?.get("backing-file") {
-            Some(path) => Self::new_with_backing(path),
-            None => Self::new(),
+        let mods = parse_attributes(&["backing-file", "*persist"], Some(config))?;
+        if let Some(path) = mods.get("backing-file") {
+            Self::new_with_backing(path)
+        } else if let Some(persist) = mods.get("persist") {
+            if persist == "true" {
+                let dir = std::env::temp_dir();
+                let path = dir.join("keyring-sample-store.ron");
+                Self::new_with_backing(path.to_str().expect("Invalid backing path"))
+            } else {
+                Self::new()
+            }
+        } else {
+            Self::new()
         }
     }
 
