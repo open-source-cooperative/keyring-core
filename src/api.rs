@@ -108,7 +108,12 @@ pub trait CredentialApi {
 
     /// Return a wrapper for the underlying credential.
     ///
-    /// If `self` is already a wrapper, return None.
+    /// If `self` is already a wrapper, you can return `None`
+    /// to give `self` back to the client.
+    /// Or you can return a new wrapper
+    /// for the same underlying credential. See the
+    /// [keyring-core wiki page](https://github.com/open-source-cooperative/keyring-rs/wiki/Keyring-Core#specifier-credentials-vs-wrapper-credentials)
+    /// for why the `None` option is available.
     ///
     /// If the underlying credential doesn't exist, return
     /// a [NoEntry](Error::NoEntry) error.
