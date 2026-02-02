@@ -134,7 +134,7 @@ fn test_missing_entry() {
 fn test_round_trip_ascii_password() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
-    test_round_trip("ascii password", &entry, "test ascii password");
+    test_round_trip("ASCII password", &entry, "test ASCII password");
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn test_round_trip_random_secret() {
 fn test_update() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
-    test_round_trip_no_delete("initial ascii password", &entry, "test ascii password");
+    test_round_trip_no_delete("initial ASCII password", &entry, "test ASCII password");
     test_round_trip(
         "updated non-ascii password",
         &entry,
@@ -371,7 +371,7 @@ fn test_create_then_move() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
     let test = move || {
-        let password = "test ascii password";
+        let password = "test ASCII password";
         entry.set_password(password).unwrap();
         let stored_password = entry.get_password().unwrap();
         assert_eq!(stored_password, password);
@@ -410,7 +410,7 @@ fn test_simultaneous_create_then_move() {
 fn test_create_set_then_move() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
-    let password = "test ascii password";
+    let password = "test ASCII password";
     entry.set_password(password).unwrap();
     let test = move || {
         let stored_password = entry.get_password().unwrap();
@@ -503,7 +503,7 @@ fn test_simultaneous_multiple_create_delete_single_thread() {
 #[test]
 fn test_search() {
     let store: Arc<CredentialStore> = Store::new().unwrap();
-    let all = store.search(&HashMap::from([])).unwrap();
+    let all = store.search(&HashMap::new()).unwrap();
     assert!(all.is_empty());
     let all = store
         .search(&HashMap::from([("service", ""), ("user", "")]))
@@ -511,7 +511,7 @@ fn test_search() {
     assert!(all.is_empty());
     let e1 = store.build("foo", "bar", None).unwrap();
     e1.set_password("e1").unwrap();
-    let all = store.search(&HashMap::from([])).unwrap();
+    let all = store.search(&HashMap::new()).unwrap();
     assert_eq!(all.len(), 1);
     let all = store
         .search(&HashMap::from([("service", ""), ("user", "")]))
@@ -548,8 +548,7 @@ fn test_search() {
     assert_eq!(two.len(), 2);
     let three = store.search(&HashMap::from([("service", "foo")])).unwrap();
     assert_eq!(three.len(), 3);
-    let all = store.search(&HashMap::from([("foo", "bar")])).unwrap();
-    assert_eq!(all.len(), 3);
+    store.search(&HashMap::from([("foo", "bar")])).unwrap_err();
 }
 
 #[test]
