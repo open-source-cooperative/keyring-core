@@ -244,9 +244,8 @@ impl CredentialStoreApi for Store {
         mods: Option<&HashMap<&str, &str>>,
     ) -> Result<Entry> {
         if mods.is_some_and(|m| !m.is_empty()) {
-            return Err(Error::NotSupportedByStore(
-                "The mock store doesn't allow modifiers".to_string(),
-            ));
+            let msg = "The mock store doesn't allow entry modifiers";
+            return Err(Error::NotSupportedByStore(msg.to_string()));
         }
         let mut inner = self
             .inner

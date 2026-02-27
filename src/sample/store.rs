@@ -136,17 +136,15 @@ impl Store {
         ))
     }
 
-    /// Save this store to its backing file.
+    /// Save the current state of this store to its backing file.
     ///
     /// This is a no-op if there is no backing file.
     ///
-    /// Stores will save themselves to their backing file
-    /// when they go out of scope (i.e., are dropped),
-    /// but this call can be very useful if you specify
-    /// an instance of your store as the keyring-core
-    /// API default store, because the default store
-    /// is kept in a static variable
-    /// and thus is *never* dropped.
+    /// Yes, stores will save themselves to their backing file
+    /// when they go out of scope (i.e., are dropped).
+    /// But using this entry to take a snapshot can save
+    /// you from crashes or let you pass the store state
+    /// off to another process.
     pub fn save(&self) -> Result<()> {
         if self.backing.is_none() {
             return Ok(());
@@ -274,14 +272,16 @@ impl CredentialStoreApi for Store {
     /// _and_ whose username matches the user regex will be returned.
     /// (The match is a substring match, so the empty string will match every value.)
     fn search(&self, spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
+        let spec = parse_attributes(&["service", "user", "uuid", "comment"], Some(spec))?;
         let mut result: Vec<Entry> = Vec::new();
-        let svc = regex::Regex::new(spec.get("service").unwrap_or(&""))
+        let empty = String::new();
+        let svc = regex::Regex::new(spec.get("service").unwrap_or(&empty))
             .map_err(|e| Invalid("service regex".to_string(), e.to_string()))?;
-        let usr = regex::Regex::new(spec.get("user").unwrap_or(&""))
+        let usr = regex::Regex::new(spec.get("user").unwrap_or(&empty))
             .map_err(|e| Invalid("user regex".to_string(), e.to_string()))?;
-        let comment = regex::Regex::new(spec.get("uuid").unwrap_or(&""))
+        let comment = regex::Regex::new(spec.get("comment").unwrap_or(&empty))
             .map_err(|e| Invalid("comment regex".to_string(), e.to_string()))?;
-        let uuid = regex::Regex::new(spec.get("uuid").unwrap_or(&""))
+        let uuid = regex::Regex::new(spec.get("uuid").unwrap_or(&empty))
             .map_err(|e| Invalid("uuid regex".to_string(), e.to_string()))?;
         let store = self.get_store();
         for pair in self.creds.iter() {
@@ -295,7 +295,7 @@ impl CredentialStoreApi for Store {
                 if !uuid.is_match(cred.key()) {
                     continue;
                 }
-                if spec.get("comment").is_some() {
+                if spec.contains_key("comment") {
                     if cred.value().comment.is_none() {
                         continue;
                     }

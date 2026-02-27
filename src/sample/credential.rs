@@ -225,17 +225,11 @@ impl CredentialApi for CredKey {
 pub fn get_attrs(uuid: &str, cred: &CredValue) -> HashMap<String, String> {
     let mut attrs = HashMap::new();
     attrs.insert("uuid".to_string(), uuid.to_string());
-    if cred.creation_date.is_some() {
-        attrs.insert(
-            "creation-date".to_string(),
-            cred.creation_date.as_ref().unwrap().to_string(),
-        );
+    if let Some(date) = &cred.creation_date {
+        attrs.insert("creation-date".to_string(), date.to_string());
     }
-    if cred.comment.is_some() {
-        attrs.insert(
-            "comment".to_string(),
-            cred.comment.as_ref().unwrap().to_string(),
-        );
+    if let Some(comment) = &cred.comment {
+        attrs.insert("comment".to_string(), comment.to_string());
     };
     attrs
 }

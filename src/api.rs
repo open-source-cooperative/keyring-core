@@ -93,7 +93,7 @@ pub trait CredentialApi {
     /// provided which returns a [NotSupportedByStore](Error::NotSupportedByStore) error.
     fn update_attributes(&self, _: &HashMap<&str, &str>) -> Result<()> {
         Err(Error::NotSupportedByStore(String::from(
-            "No attributes can be updated",
+            "This store does not allow attribute updates",
         )))
     }
 
@@ -108,7 +108,12 @@ pub trait CredentialApi {
 
     /// Return a wrapper for the underlying credential.
     ///
-    /// If `self` is already a wrapper, return None.
+    /// If `self` is already a wrapper, you can return `None`
+    /// to give `self` back to the client.
+    /// Or you can return a new wrapper
+    /// for the same underlying credential. See the
+    /// [keyring-core wiki page](https://github.com/open-source-cooperative/keyring-rs/wiki/Keyring-Core#specifier-credentials-vs-wrapper-credentials)
+    /// for why the `None` option is available.
     ///
     /// If the underlying credential doesn't exist, return
     /// a [NoEntry](Error::NoEntry) error.
@@ -213,8 +218,8 @@ pub trait CredentialStoreApi {
     /// [NotSupportedByStore](Error::NotSupportedByStore) error; that is,
     /// credential stores need not provide support for search.
     fn search(&self, _spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
-        let vendor = self.vendor();
-        Err(Error::NotSupportedByStore(vendor))
+        let msg = "This store does not provide search capabilities";
+        Err(Error::NotSupportedByStore(msg.to_string()))
     }
 
     /// Return the inner store object cast to [Any].
