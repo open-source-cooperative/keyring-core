@@ -93,7 +93,7 @@ pub trait CredentialApi {
     /// provided which returns a [NotSupportedByStore](Error::NotSupportedByStore) error.
     fn update_attributes(&self, _: &HashMap<&str, &str>) -> Result<()> {
         Err(Error::NotSupportedByStore(String::from(
-            "No attributes can be updated",
+            "This store does not allow attribute updates",
         )))
     }
 
@@ -218,8 +218,8 @@ pub trait CredentialStoreApi {
     /// [NotSupportedByStore](Error::NotSupportedByStore) error; that is,
     /// credential stores need not provide support for search.
     fn search(&self, _spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
-        let vendor = self.vendor();
-        Err(Error::NotSupportedByStore(vendor))
+        let msg = "This store does not provide search capabilities";
+        Err(Error::NotSupportedByStore(msg.to_string()))
     }
 
     /// Return the inner store object cast to [Any].

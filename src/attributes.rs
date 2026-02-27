@@ -39,7 +39,7 @@ pub fn parse_attributes(
             } else {
                 return Err(Invalid(
                     key.to_string(),
-                    "must be `true` or `false`".to_string(),
+                    "must be 'true' or 'false'".to_string(),
                 ));
             }
         } else {
@@ -74,7 +74,7 @@ mod tests {
         match parse_attributes(&["*key1"], Some(&bad_attrs)) {
             Err(Invalid(key, msg)) => {
                 assert_eq!(key, "key1");
-                assert_eq!(msg, "must be `true` or `false`");
+                assert_eq!(msg, "must be 'true' or 'false'");
             }
             _ => panic!("Incorrect error for invalid boolean attribute"),
         }
