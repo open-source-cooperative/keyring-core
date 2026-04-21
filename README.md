@@ -2,7 +2,7 @@
 
 [![build](https://github.com/open-source-cooperative/keyring-core/actions/workflows/ci.yaml/badge.svg)](https://github.com/open-source-cooperative/keyring-core/actions) [![crates.io](https://img.shields.io/crates/v/keyring-core.svg)](https://crates.io/crates/keyring-core) [![docs.rs](https://docs.rs/keyring-core/badge.svg)](https://docs.rs/keyring-core)
 
-This crate, `keyring-core`, is part of the [Keyring ecosystem](https://github.com/open-source-cooperative/keyring-core/wiki/Keyring). It provides a cross-platform library to manage storage and retrieval of passwords (and other secrets) in secure credential stores, as used by the [keyring application](https://crates.io/crates/keyring). If you are a developer looking to integrate secret-management facilities into your app, this is the crate you should use as a dependency, along with one or more keyring-compatible credential-stores.
+This crate, `keyring-core`, is part of the [Keyring ecosystem](https://github.com/open-source-cooperative/keyring-core/wiki/Keyring). It provides a cross-platform library to manage storage and retrieval of passwords (and other secrets) in secure credential stores, such as the [demonstration keyring applications](https://github.com/open-source-cooperative/keyring-rs/wiki/Keyring-Applications). If you are a developer looking to integrate secret-management facilities into your app, this is the crate you should use as a dependency, along with one or more keyring-compatible credential-stores.
 
 ## Usage
 
@@ -39,19 +39,19 @@ This crate comes with two cross-platform credential stores that can be used by c
 
 ## API changes
 
-There are some changes in the API relative to that in the [keyring crate v3](https://crates.io/crates/keyring/3.6.2). Both client and credential store developers will need to make changes. Developers should read the [keyring-core design document](https://github.com/open-source-cooperative/keyring-rs/wiki/Keyring-Core) to better understand the new API.
+There are some changes in the keyring API relative to that in the [keyring crate v3](https://crates.io/crates/keyring/3.6.2), which this crate replaces. Both client and credential store developers should read the [keyring-core design document](https://github.com/open-source-cooperative/keyring-rs/wiki/Keyring-Core) to better understand the new API. Client developers will need to make changes to their code as outlined here. Credential store developers can use the `sample` credential store code as an example of how to structure their code. 
 
-### Client changes
+* In the older API, the default credential store was selected via feature at compilation time. In the new API, clients explicitly allocate a credential store at application startup, and then select that store as the default via `set_default_store`. (They should also release this store at application shutdown via `unset_default_store`.) The docs for each credential store contain allocation and other lifecycle details.
+* The `Entry` API no longer exposes credential objects from an underlying store. As part of this change:
+  * The `Entry::get_credential` call fails with a `NoEntry` error if there is no underlying credential object. If there is an underlying credential, it returns an `Entry` which _wraps_ that credential (see [the docs](https://docs.rs/keyring-core/) for details).
+  * the `Ambiguous` error now returns a list of wrapper entries rather than a list of credentials. The `ambiguity` example in this crate has sample code that shows how to handle ambiguity without the use of credentials.
 
-* In the older API, credential stores were fairly opaque, exposing only a credential builder function (which was a   singleton). In the current API, credential stores are richer objects with their own lifecycle, so `set_default_credential_builder` has become `set_default_store`, and it receives the default store via a shared `Arc` rather than an owning `Box`. There is also an `unset_default_store` function to release the store.
-* The new client-facing API does not reveal the `Credential` object, which is exclusively part of the credential-store provider API. As part of this change, the `Ambiguous` error now returns a list of entries.
-* The new API's `get_credential` call now fails if there is no existing credential for an entry, and returns an entry rather than a credential.
-* The `new_with_target` API has been replaced by `new_with_modifiers`, where `target` is just one of the possible keys in the modifiers map. Check your credential store to see if `target` is accepted as a modifier key.
-* The new API exposes credential search and returns entries for all the matching credentials. Many thanks to @wiimmers for showing the way with his [keyring-search](https://crates.io/crates/keyring-search) crate. I am hoping he will integrate his search facilities into all the new credential stores.
+* The `Entry::new_with_target` API has been replaced by `Entry::new_with_modifiers`, where `target` is just one of the possible keys in the modifiers map (see [the docs](https://docs.rs/keyring-core/) for details). If you are using this API, be sure to check the docs for your credential stores to see whether they accept `target` as a modifier on entry creation.
+* There is a new `Entry::search` API which takes a search specification and, if implemented by the underlying store, returns entries for all the matching credentials. Many thanks to @wiimmers for showing the way with his [keyring-search](https://crates.io/crates/keyring-search) crate. I am hoping he will integrate his search facilities into all the new credential stores.
 
 ## Changelog
 
-See the [release history on GitHub](https://github.com/open-source-cooperative/keyring-core/releases) for full details.
+See the [release history on GitHub](https://github.com/open-source-cooperative/keyring-core/releases). Since this crate contains code that was originally written as part of the [keyring crate](https://github.com/open-source-cooperative/keyring-rs/),  refer [to that crate’s release history](https://github.com/open-source-cooperative/keyring-rs/releases) for changes made prior to this crate’s creation.
 
 ## License
 
@@ -61,10 +61,6 @@ Licensed under either of
 * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
 
 at your option.
-
-## Contributors
-
-The full list of library contributors may be found in the [Contributors file](Contributors.md).
 
 ### Contribution
 
