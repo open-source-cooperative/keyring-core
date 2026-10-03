@@ -1,0 +1,35 @@
+name: Mutants
+
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  cargo_mutants:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install rust stable
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-mutants
+
+      - name: Diff against base
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git diff "origin/$BASE_REF...HEAD" > pr.diff
+
+      - name: Mutation test changed lines
+        run: cargo mutants --in-diff pr.diff --all-features
