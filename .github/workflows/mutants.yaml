@@ -2,6 +2,10 @@ name: Mutants
 
 on: pull_request
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
