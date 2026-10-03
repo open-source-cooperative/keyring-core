@@ -1,0 +1,33 @@
+name: Audit
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo_audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-audit
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
+      - name: Audit dependencies
+        run: cargo audit
