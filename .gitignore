@@ -1,12 +1,15 @@
+# don't check in build artifacts
+target
 # don't check in Cargo.lock because this is a library project
 # see https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 Cargo.lock
-# don't check in the binary and testing artifacts
-target
-fuzz
-libtest.rmeta
-# profiling
-*.profdata
-*.profraw
+# don't check in .cargo directory because most of the stuff
+# in there is per-developer environment-specific.
+/.cargo/*
 # mutants testing
+# since the profile is in .cargo/mutants.toml
+# and needs to be seen by all developers,
+# exempt that file from the .cargo ignore
+!/.cargo/mutants.toml
+# the mutants.out* directories hold testing artifacts
 mutants.out*
