@@ -11,5 +11,9 @@ Cargo.lock
 # and needs to be seen by all developers,
 # exempt that file from the .cargo ignore
 !/.cargo/mutants.toml
-# the mutants.out* directories hold testing artifacts
+# don't check in testing or profiling artifacts
 mutants.out*
+fuzz
+libtest.rmeta
+*.profdata
+*.profraw
