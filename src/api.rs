@@ -2,13 +2,10 @@
 
 # Platform-independent secure storage model
 
-This module defines a plug and play model for credential stores.
-The model comprises two traits: [CredentialStoreApi] for
-store-level operations
-and [CredentialApi] for
-entry-level operations.  These traits must be implemented
-in a thread-safe way, a requirement captured in the [CredentialStore] and
-[Credential] types that wrap them.
+This module defines a plug and play model for credential stores. The model comprises two
+traits: [CredentialStoreApi] for store-level operations and [CredentialApi] for
+entry-level operations.  These traits must be implemented in a thread-safe way, a
+requirement captured in the [CredentialStore] and [Credential] types that wrap them.
  */
 use std::any::Any;
 use std::collections::HashMap;
@@ -256,3 +253,77 @@ impl std::fmt::Debug for CredentialStore {
 
 /// A thread-safe implementation of the [CredentialBuilder API](CredentialStoreApi).
 pub type CredentialStore = dyn CredentialStoreApi + Send + Sync;
+
+#[cfg(test)]
+mod tests {
+    use super::{Any, Arc, CredentialStore, CredentialStoreApi, Entry, Error, HashMap, Result};
+
+    // minimal store that uses only the default impls;
+    // we use it to test the default impls only
+    struct MinimalStore;
+
+    impl CredentialStoreApi for MinimalStore {
+        fn vendor(&self) -> String {
+            unimplemented!()
+        }
+
+        fn id(&self) -> String {
+            unimplemented!()
+        }
+
+        fn build(&self, _: &str, _: &str, mods: Option<&HashMap<&str, &str>>) -> Result<Entry> {
+            match mods {
+                Some(mods) => Err(Error::Invalid("mods".to_string(), mods.len().to_string())),
+                None => Err(Error::Invalid("no-mods".to_string(), "0".to_string())),
+            }
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            unimplemented!()
+        }
+    }
+
+    #[test]
+    fn test_entry_methods() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        assert!(crate::get_default_store().is_none());
+        assert!(matches!(
+            Entry::new("test", "test"),
+            Err(Error::NoDefaultStore)
+        ));
+        assert!(matches!(
+            Entry::new_with_modifiers("test", "test", &HashMap::new()),
+            Err(Error::NoDefaultStore)
+        ));
+        assert!(matches!(
+            Entry::search(&HashMap::new()),
+            Err(Error::NoDefaultStore)
+        ));
+        let default: Arc<CredentialStore> = Arc::new(MinimalStore);
+        crate::set_default_store(default.clone());
+        let current = crate::get_default_store().unwrap();
+        assert!(Arc::ptr_eq(&current, &default));
+        let last = crate::unset_default_store().unwrap();
+        assert!(Arc::ptr_eq(&last, &default));
+        assert!(crate::get_default_store().is_none());
+        crate::set_default_store(default);
+        assert!(matches!(
+            Entry::new("test", "test"),
+            Err(Error::Invalid(x, y)) if x == "no-mods" && y == "0"
+        ));
+        assert!(matches!(
+            Entry::new_with_modifiers("test", "test", &HashMap::new()),
+            Err(Error::Invalid(x, y)) if x == "mods" && y == "0"
+        ));
+        assert!(matches!(
+            Entry::new_with_modifiers("test", "test", &HashMap::from([("k1", "v1"), ("k2", "v2")])),
+            Err(Error::Invalid(x, y)) if x == "mods" && y == "2"
+        ));
+        assert!(matches!(
+            Entry::search(&HashMap::new()),
+            Err(Error::NotSupportedByStore(_))
+        ));
+        crate::unset_default_store();
+        assert!(crate::get_default_store().is_none());
+    }
+}

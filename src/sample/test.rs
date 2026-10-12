@@ -1,49 +1,45 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Once};
+use std::sync::{Arc, OnceLock};
 
 use dashmap::DashMap;
 use uuid::Uuid;
 
 use super::credential::{CredId, CredKey};
 use super::store::{CredValue, Store};
-use crate::{CredentialStore, Entry, Error, api::CredentialPersistence, get_default_store};
+use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
 
-static SET_STORE: Once = Once::new();
+static STORE: OnceLock<Arc<CredentialStore>> = OnceLock::new();
 
-fn usually_goes_in_main() {
-    let _ = env_logger::builder().is_test(true).try_init();
-    crate::set_default_store(Store::new().unwrap());
+fn get_store() -> &'static Arc<CredentialStore> {
+    STORE.get_or_init(|| Store::new().unwrap())
 }
 
 #[test]
-fn test_store_methods() {
-    SET_STORE.call_once(usually_goes_in_main);
-    let store = get_default_store().unwrap();
-    let vendor1 = store.vendor();
-    let id1 = store.id();
-    let vendor2 = store.vendor();
-    let id2 = store.id();
-    assert_eq!(vendor1, vendor2);
-    assert_eq!(id1, id2);
-    let store2: Arc<CredentialStore> = Store::new().unwrap();
-    let vendor3 = store2.vendor();
-    let id3 = store2.id();
-    assert_eq!(vendor1, vendor3);
-    assert_ne!(id1, id3);
+fn test_vendor_and_id() {
+    let s1 = get_store();
+    let s2 = Store::new().unwrap() as Arc<CredentialStore>;
+    assert_eq!(
+        s1.vendor(),
+        "Sample store, https://crates.io/crates/keyring-core"
+    );
+    assert_eq!(s1.vendor(), s2.vendor());
+    assert_ne!(s1.id(), s2.id());
 }
 
 fn entry_new(service: &str, user: &str) -> Entry {
-    SET_STORE.call_once(usually_goes_in_main);
-    Entry::new(service, user).unwrap_or_else(|err| {
-        panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
-    })
+    get_store()
+        .build(service, user, None)
+        .unwrap_or_else(|err| {
+            panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
+        })
 }
 
 fn entry_new_with_modifiers(service: &str, user: &str, mods: &HashMap<&str, &str>) -> Entry {
-    SET_STORE.call_once(usually_goes_in_main);
-    Entry::new_with_modifiers(service, user, mods).unwrap_or_else(|err| {
-        panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
-    })
+    get_store()
+        .build(service, user, Some(mods))
+        .unwrap_or_else(|err| {
+            panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
+        })
 }
 
 fn generate_random_string() -> String {
@@ -134,7 +130,7 @@ fn test_missing_entry() {
 fn test_round_trip_ascii_password() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
-    test_round_trip("ASCII password", &entry, "test ASCII password");
+    test_round_trip("ascii password", &entry, "test ascii password");
 }
 
 #[test]
@@ -172,7 +168,7 @@ fn test_round_trip_random_secret() {
 fn test_update() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
-    test_round_trip_no_delete("initial ASCII password", &entry, "test ASCII password");
+    test_round_trip_no_delete("initial ascii password", &entry, "test ascii password");
     test_round_trip(
         "updated non-ascii password",
         &entry,
@@ -241,20 +237,38 @@ fn test_get_update_attributes() {
 }
 
 #[test]
-fn test_get_credential_and_specifiers() {
+fn test_get_credential_and_specifiers_and_cred() {
     let name = generate_random_string();
     let entry1 = entry_new(&name, &name);
     assert!(matches!(entry1.get_credential(), Err(Error::NoEntry)));
+    let modifiers = HashMap::from([("force-create", "entry1")]);
+    let entry1 = entry_new_with_modifiers(&name, &name, &modifiers);
     entry1.set_password("password for entry1").unwrap();
     let wrapper = entry1.get_credential().unwrap();
-    let cred = wrapper.as_any().downcast_ref::<CredKey>().unwrap();
-    assert!(cred.uuid.is_some());
     let (service, user) = wrapper.get_specifiers().unwrap();
     assert_eq!(service, name);
     assert_eq!(user, name);
+    let cred = wrapper.as_any().downcast_ref::<CredKey>().unwrap();
+    assert_ne!(cred.get_uuid().unwrap(), "");
+    assert_eq!(cred.get_comment().unwrap().unwrap(), "entry1");
     wrapper.delete_credential().unwrap();
     entry1.delete_credential().unwrap_err();
     wrapper.delete_credential().unwrap_err();
+}
+
+#[test]
+fn test_get_set_after_delete_cred() {
+    let name = generate_random_string();
+    let entry = entry_new(&name, &name);
+    entry.set_password("password for entry1").unwrap();
+    let wrapper = entry.get_credential().unwrap();
+    // delete the credential but leave the specifier entry in the sample table
+    wrapper.delete_credential().unwrap();
+    assert!(matches!(entry.get_password(), Err(Error::NoEntry)));
+    assert!(matches!(
+        wrapper.set_password("password after delete"),
+        Err(Error::NoEntry)
+    ));
 }
 
 #[test]
@@ -371,7 +385,7 @@ fn test_create_then_move() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
     let test = move || {
-        let password = "test ASCII password";
+        let password = "test ascii password";
         entry.set_password(password).unwrap();
         let stored_password = entry.get_password().unwrap();
         assert_eq!(stored_password, password);
@@ -410,7 +424,7 @@ fn test_simultaneous_create_then_move() {
 fn test_create_set_then_move() {
     let name = generate_random_string();
     let entry = entry_new(&name, &name);
-    let password = "test ASCII password";
+    let password = "test ascii password";
     entry.set_password(password).unwrap();
     let test = move || {
         let stored_password = entry.get_password().unwrap();

@@ -70,7 +70,7 @@ impl CredKey {
             // this is a specifier
             None => {
                 match self.store.creds.get(&self.id) {
-                    // there are no creds: create the only one and set it
+                    // there are no matching creds
                     None => Err(Error::NoEntry),
                     // this is a specifier: check for ambiguity and get if not
                     Some(pair) => {

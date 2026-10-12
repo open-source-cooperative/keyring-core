@@ -313,40 +313,47 @@ impl CredentialStoreApi for Store {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Once};
+    use std::sync::{Arc, OnceLock};
 
     use super::{Cred, HashMap, Store};
-    use crate::{CredentialPersistence, CredentialStore, Entry, Error, get_default_store};
+    use crate::{CredentialPersistence, CredentialStore, Entry, Error};
 
-    static SET_STORE: Once = Once::new();
+    static STORE: OnceLock<Arc<CredentialStore>> = OnceLock::new();
 
-    fn usually_goes_in_main() {
-        let _ = env_logger::builder().is_test(true).try_init();
-        crate::set_default_store(Store::new().unwrap());
+    fn get_store() -> &'static Arc<CredentialStore> {
+        STORE.get_or_init(|| Store::new().unwrap())
     }
 
     #[test]
-    fn test_store_methods() {
-        SET_STORE.call_once(usually_goes_in_main);
-        let store = get_default_store().unwrap();
-        let vendor1 = store.vendor();
-        let id1 = store.id();
-        let vendor2 = store.vendor();
-        let id2 = store.id();
-        assert_eq!(vendor1, vendor2);
-        assert_eq!(id1, id2);
-        let store2: Arc<CredentialStore> = Store::new().unwrap();
-        let vendor3 = store2.vendor();
-        let id3 = store2.id();
-        assert_eq!(vendor1, vendor3);
-        assert_ne!(id1, id3);
+    fn test_vendor_and_id() {
+        let s1 = get_store();
+        let s2 = Store::new().unwrap() as Arc<CredentialStore>;
+        assert_eq!(
+            s1.vendor(),
+            "Mock store, https://crates.io/crates/keyring-core"
+        );
+        assert_eq!(s1.vendor(), s2.vendor());
+        assert_ne!(s1.id(), s2.id());
+    }
+
+    #[test]
+    fn test_modifiers() {
+        let empty_mods = HashMap::new();
+        let name = generate_random_string();
+        get_store().build(&name, &name, Some(&empty_mods)).unwrap();
+        let non_empty_mods = HashMap::from([("mod-arg", "mod-val")]);
+        assert!(matches!(
+            get_store().build("fail", "fail", Some(&non_empty_mods)),
+            Err(Error::NotSupportedByStore(_))
+        ));
     }
 
     fn entry_new(service: &str, user: &str) -> Entry {
-        SET_STORE.call_once(usually_goes_in_main);
-        Entry::new(service, user).unwrap_or_else(|err| {
-            panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
-        })
+        get_store()
+            .build(service, user, None)
+            .unwrap_or_else(|err| {
+                panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
+            })
     }
 
     fn generate_random_string() -> String {
@@ -518,6 +525,21 @@ mod tests {
         ));
         entry.delete_credential().unwrap();
         assert!(matches!(entry.get_password(), Err(Error::NoEntry)))
+    }
+
+    #[test]
+    fn test_get_update_attributes() {
+        let name = generate_random_string();
+        let entry = entry_new(&name, &name);
+        assert!(matches!(entry.get_attributes(), Err(Error::NoEntry)));
+        entry.set_password("password").unwrap();
+        let attrs = entry.get_attributes().unwrap();
+        assert_eq!(attrs.len(), 0);
+        assert!(matches!(
+            entry.update_attributes(&HashMap::new()),
+            Err(Error::NotSupportedByStore(_))
+        ));
+        entry.delete_credential().unwrap();
     }
 
     #[test]

@@ -1,0 +1,6 @@
+features = ["sample"]
+exclude_re = [
+    "impl (std::fmt::)?Debug",
+    "impl (std::fmt::)?Display",
+    "::debug_fmt",
+]
