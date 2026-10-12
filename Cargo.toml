@@ -9,7 +9,7 @@ repository = "https://github.com/open-source-cooperative/keyring-core.git"
 version = "1.0.0"
 rust-version = "1.85"
 edition = "2024"
-exclude = [".github/"]
+exclude = [".github/", "./cargo"]
 readme = "README.md"
 
 [features]
