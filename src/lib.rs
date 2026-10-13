@@ -403,9 +403,5 @@ impl Entry {
 #[cfg(doctest)]
 doc_comment::doctest!("../README.md", readme);
 
-#[cfg(target_os = "windows")]
-compile_error!("This is a test");
-
 #[cfg(doctest)]
-#[cfg(target_os = "windows")]
 compile_error!("This is a doc test");
