@@ -403,5 +403,7 @@ impl Entry {
 #[cfg(doctest)]
 doc_comment::doctest!("../README.md", readme);
 
-#[cfg(doctest)]
-compile_error!("This is a doc test");
+/// Refer to a non-existent [Entry](foo::bar) to provoke a warning.
+pub fn not_useful() -> i32 {
+    0
+}
