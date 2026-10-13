@@ -405,5 +405,10 @@ doc_comment::doctest!("../README.md", readme);
 
 /// Refer to a non-existent [Entry](foo::bar) to provoke a warning.
 pub fn not_useful() -> i32 {
-    0
+    42
+}
+
+#[test]
+fn test_not_useful() {
+    assert_eq!(not_useful(), 42);
 }
