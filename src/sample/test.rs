@@ -4,9 +4,11 @@ use std::sync::{Arc, OnceLock};
 use dashmap::DashMap;
 use uuid::Uuid;
 
+use crate::tests::{generate_random_bytes, generate_random_string};
+use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
+
 use super::credential::{CredId, CredKey};
 use super::store::{CredValue, Store};
-use crate::{CredentialStore, Entry, Error, api::CredentialPersistence};
 
 static STORE: OnceLock<Arc<CredentialStore>> = OnceLock::new();
 
@@ -40,18 +42,6 @@ fn entry_new_with_modifiers(service: &str, user: &str, mods: &HashMap<&str, &str
         .unwrap_or_else(|err| {
             panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
         })
-}
-
-fn generate_random_string() -> String {
-    use fastrand;
-    use std::iter::repeat_with;
-    repeat_with(fastrand::alphanumeric).take(12).collect()
-}
-
-fn generate_random_bytes() -> Vec<u8> {
-    use fastrand;
-    use std::iter::repeat_with;
-    repeat_with(|| fastrand::u8(..)).take(24).collect()
 }
 
 // A round-trip password test that doesn't delete the credential afterward

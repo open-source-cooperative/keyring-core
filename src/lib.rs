@@ -41,6 +41,9 @@ pub mod mock;
 #[cfg(feature = "sample")]
 pub mod sample;
 
+#[cfg(test)]
+mod tests;
+
 pub use api::{Credential, CredentialPersistence, CredentialStore};
 pub use error::{Error, Result};
 
