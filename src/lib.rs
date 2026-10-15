@@ -41,16 +41,19 @@ pub mod mock;
 #[cfg(feature = "sample")]
 pub mod sample;
 
+#[cfg(test)]
+mod tests;
+
 pub use api::{Credential, CredentialPersistence, CredentialStore};
 pub use error::{Error, Result};
 
 #[derive(Default, Debug)]
-struct DefaultStore {
-    inner: Option<Arc<CredentialStore>>,
+struct NamedStores {
+    inner: Option<HashMap<String, Arc<CredentialStore>>>,
 }
 
-static DEFAULT_STORE: std::sync::RwLock<DefaultStore> =
-    std::sync::RwLock::new(DefaultStore { inner: None });
+static NAMED_STORES: std::sync::RwLock<NamedStores> =
+    std::sync::RwLock::new(NamedStores { inner: None });
 
 /// Set the credential store used by default to create entries.
 ///
@@ -64,19 +67,95 @@ static DEFAULT_STORE: std::sync::RwLock<DefaultStore> =
 /// at startup before creating any entries.
 pub fn set_default_store(new: Arc<CredentialStore>) {
     debug!("setting the default credential store to {new:?}");
-    let mut guard = DEFAULT_STORE
+    let mut guard = NAMED_STORES
         .write()
         .expect("Poisoned RwLock in keyring_core::set_default_store: please report a bug!");
-    guard.inner = Some(new);
+    guard
+        .inner
+        .get_or_insert_with(HashMap::new)
+        .insert("default".to_string(), new);
 }
 
 /// Get the default credential store.
 pub fn get_default_store() -> Option<Arc<CredentialStore>> {
     debug!("getting the default credential store");
-    let guard = DEFAULT_STORE
+    let guard = NAMED_STORES
         .read()
         .expect("Poisoned RwLock in keyring_core::get_default_store: please report a bug!");
-    guard.inner.clone()
+    guard
+        .inner
+        .as_ref()
+        .and_then(|map| map.get("default"))
+        .cloned()
+}
+
+/// Add or update a named credential store.
+///
+/// Returns any store that had previously been associated with `name`.
+///
+/// # Errors
+///
+/// Returns an [Invalid][Error::Invalid] error if `name` is `"default"`.
+pub fn add_named_store(
+    name: &str,
+    store: Arc<CredentialStore>,
+) -> Result<Option<Arc<CredentialStore>>> {
+    if name == "default" {
+        return Err(Error::Invalid(
+            "name".to_string(),
+            "cannot be 'default'".to_string(),
+        ));
+    }
+    debug!("adding named store {name} with {store:?}");
+    let mut guard = NAMED_STORES
+        .write()
+        .expect("Poisoned RwLock in keyring_core::add_named_store: please report a bug!");
+    Ok(guard
+        .inner
+        .get_or_insert_with(HashMap::new)
+        .insert(name.to_string(), store))
+}
+
+/// Drop a named credential store.
+///
+/// Returns any store that had previously been associated with `name`.
+///
+/// # Errors
+///
+/// Returns an [Invalid][Error::Invalid] error if `name` is `"default"`.
+pub fn drop_named_store(name: &str) -> Result<Option<Arc<CredentialStore>>> {
+    if name == "default" {
+        return Err(Error::Invalid(
+            "name".to_string(),
+            "cannot be 'default'".to_string(),
+        ));
+    }
+    debug!("dropping named store {name}");
+    let mut guard = NAMED_STORES
+        .write()
+        .expect("Poisoned RwLock in keyring_core::drop_named_store: please report a bug!");
+    Ok(guard.inner.as_mut().and_then(|map| map.remove(name)))
+}
+
+/// Get a named credential store.
+///
+/// Returns the store associated with `name`, if any.
+///
+/// # Errors
+///
+/// Returns an [Invalid][Error::Invalid] error if `name` is `"default"`.
+pub fn get_named_store(name: &str) -> Result<Option<Arc<CredentialStore>>> {
+    if name == "default" {
+        return Err(Error::Invalid(
+            "name".to_string(),
+            "cannot be 'default'".to_string(),
+        ));
+    }
+    debug!("getting named store {name}");
+    let guard = NAMED_STORES
+        .read()
+        .expect("Poisoned RwLock in keyring_core::get_named_store: please report a bug!");
+    Ok(guard.inner.as_ref().and_then(|map| map.get(name)).cloned())
 }
 
 /// Release the default credential store.
@@ -88,10 +167,10 @@ pub fn get_default_store() -> Option<Arc<CredentialStore>> {
 /// unintended side effects.
 pub fn unset_default_store() -> Option<Arc<CredentialStore>> {
     debug!("unsetting the default credential store");
-    let mut guard = DEFAULT_STORE
+    let mut guard = NAMED_STORES
         .write()
         .expect("Poisoned RwLock in keyring_core::unset_default_store: please report a bug!");
-    guard.inner.take()
+    guard.inner.as_mut().and_then(|map| map.remove("default"))
 }
 
 fn build_default_credential(
@@ -99,10 +178,10 @@ fn build_default_credential(
     user: &str,
     attrs: Option<&HashMap<&str, &str>>,
 ) -> Result<Entry> {
-    let guard = DEFAULT_STORE
+    let guard = NAMED_STORES
         .read()
         .expect("Poisoned RwLock in keyring-core::build_default_credential: please report a bug!");
-    match guard.inner.as_ref() {
+    match guard.inner.as_ref().and_then(|map| map.get("default")) {
         Some(store) => store.build(service, user, attrs),
         None => Err(Error::NoDefaultStore),
     }
@@ -134,7 +213,40 @@ impl Entry {
         Ok(entry)
     }
 
-    /// Create an entry for the given `service` and `user`, passing store-specific modifiers.
+    /// Create an entry for the given `service` and `user` in the given `store`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error
+    /// if the `service` or `user` values are not
+    /// acceptable to the credential store.
+    pub fn new_in_store(store: &Arc<CredentialStore>, service: &str, user: &str) -> Result<Entry> {
+        debug!("creating entry with service {service}, user {user} in store {store:?}");
+        let entry = store.build(service, user, None)?;
+        debug!("created entry {:?}", entry.inner);
+        Ok(entry)
+    }
+
+    /// Create an entry for the given `service` and `user` in the named store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error if `name` is `"default"`, if no store
+    /// with that name exists, or if the `service` or `user` values are not acceptable to
+    /// the named store.
+    pub fn new_in_named_store(name: &str, service: &str, user: &str) -> Result<Entry> {
+        debug!("creating entry with service {service}, user {user} in named store {name}");
+        match get_named_store(name)? {
+            Some(store) => Self::new_in_store(&store, service, user),
+            None => Err(Error::Invalid(
+                "name".to_string(),
+                "no such store".to_string(),
+            )),
+        }
+    }
+
+    /// Create an entry for the given `service` and `user`, passing store-specific
+    /// modifiers.
     ///
     /// The default credential builder is used.
     ///
@@ -160,6 +272,57 @@ impl Entry {
         Ok(entry)
     }
 
+    /// Create an entry for the given `service` and `user`, passing store-specific
+    /// modifiers, in the given `store`.
+    ///
+    /// See the documentation for each credential store to understand what
+    /// modifiers may be specified for that store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error
+    /// if the `service`, `user`, or `modifier` pairs are not
+    /// acceptable to the given credential store.
+    pub fn new_in_store_with_modifiers(
+        store: &Arc<CredentialStore>,
+        service: &str,
+        user: &str,
+        modifiers: &HashMap<&str, &str>,
+    ) -> Result<Entry> {
+        debug!(
+            "creating entry with service {service}, user {user}, and mods {modifiers:?} in store {store:?}"
+        );
+        let entry = store.build(service, user, Some(modifiers))?;
+        debug!("created entry {:?}", entry.inner);
+        Ok(entry)
+    }
+
+    /// Create an entry for the given `service` and `user`, passing store-specific
+    /// modifiers, in the named store.
+    ///
+    /// See the documentation for each credential store to understand what
+    /// modifiers may be specified for that store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error if `name` is `"default"`, if no store
+    /// with that name exists, or if the `service`, `user`, or `modifier` pairs are not
+    /// acceptable to the named store.
+    pub fn new_in_named_store_with_modifiers(
+        name: &str,
+        service: &str,
+        user: &str,
+        modifiers: &HashMap<&str, &str>,
+    ) -> Result<Entry> {
+        match get_named_store(name)? {
+            Some(store) => Self::new_in_store_with_modifiers(&store, service, user, modifiers),
+            None => Err(Error::Invalid(
+                "name".to_string(),
+                "no such store".to_string(),
+            )),
+        }
+    }
+
     /// Create an entry that wraps a pre-existing credential. The credential can
     /// be from any credential store.
     pub fn new_with_credential(credential: Arc<Credential>) -> Entry {
@@ -181,12 +344,47 @@ impl Entry {
     /// if the default credential store has not been set.
     pub fn search(spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
         debug!("searching for {spec:?}");
-        let guard = DEFAULT_STORE.read().expect(
+        let guard = NAMED_STORES.read().expect(
             "Poisoned RwLock in keyring-core::search_for_credentials: please report a bug!",
         );
-        match guard.inner.as_ref() {
+        match guard.inner.as_ref().and_then(|map| map.get("default")) {
             Some(store) => store.search(spec),
             None => Err(Error::NoDefaultStore),
+        }
+    }
+
+    /// Search the given store for credentials, returning entries that wrap any found.
+    ///
+    /// See the documentation of each credential store for how searches are specified.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error if the `spec` value is not acceptable
+    /// to the given credential store.
+    pub fn search_in_store(
+        store: &Arc<CredentialStore>,
+        spec: &HashMap<&str, &str>,
+    ) -> Result<Vec<Entry>> {
+        debug!("searching for {spec:?} in store {store:?}");
+        store.search(spec)
+    }
+
+    /// Search the named store for credentials, returning entries that wrap any found.
+    ///
+    /// See the documentation of each credential store for how searches are specified.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error if `name` is `"default"`, if no store
+    /// with that name exists, or if the `spec` value is not acceptable to the named
+    /// store.
+    pub fn search_in_named_store(name: &str, spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
+        match get_named_store(name)? {
+            Some(store) => store.search(spec),
+            None => Err(Error::Invalid(
+                "name".to_string(),
+                "no such store".to_string(),
+            )),
         }
     }
 
