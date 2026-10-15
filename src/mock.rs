@@ -51,7 +51,7 @@ use crate::{Credential, CredentialPersistence, Entry, Error, Result};
 /// The mutex is used to make sure these are Sync.
 #[derive(Debug)]
 pub struct Cred {
-    /// The service and user names that identify this credential.
+    /// The service name and username that identify this credential.
     pub specifiers: (String, String),
     /// The credential's data.
     pub inner: Mutex<RefCell<CredData>>,
@@ -199,7 +199,7 @@ impl Cred {
 /// Yes, a hashmap might be faster, but this is
 /// way simpler.
 pub struct Store {
-    /// An identifier for this store.
+    /// The unique ID for this store instance.
     pub id: String,
     /// The credentials in this store.
     pub inner: Mutex<RefCell<Vec<Arc<Cred>>>>,

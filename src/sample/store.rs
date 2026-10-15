@@ -69,7 +69,7 @@ pub struct SelfRef {
 /// ourself in the STORES vector, so we can get a pointer to ourself
 /// whenever we need to build a credential.
 pub struct Store {
-    /// An identifier for this store.
+    /// The unique ID for this store instance.
     pub id: String,
     /// The credentials in this store.
     pub creds: CredMap,

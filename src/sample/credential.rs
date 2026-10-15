@@ -15,7 +15,7 @@ use crate::{Credential, Entry, Error, Result, api::CredentialApi};
 pub struct CredId {
     /// The service name.
     pub service: String,
-    /// The user name.
+    /// The username.
     pub user: String,
 }
 
@@ -34,7 +34,7 @@ pub struct CredKey {
     pub store: Arc<Store>,
     /// The service and user pair for this credential.
     pub id: CredId,
-    /// The UUID of the credential this key wraps, or `None` for a key that specifies credentials.
+    /// The UUID of the credential this key wraps, if any.
     pub uuid: Option<String>,
 }
 
