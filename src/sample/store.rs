@@ -20,12 +20,16 @@ use crate::{
 /// The stored data for a credential
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CredValue {
+    /// The stored secret.
     pub secret: Vec<u8>,
+    /// The comment attribute, if any.
     pub comment: Option<String>,
+    /// The creation date attribute, if any, as an RFC 2822 date.
     pub creation_date: Option<String>,
 }
 
 impl CredValue {
+    /// Create a stored credential with the given secret and no other attributes.
     pub fn new(secret: &[u8]) -> Self {
         CredValue {
             secret: secret.to_vec(),
@@ -34,6 +38,7 @@ impl CredValue {
         }
     }
 
+    /// Create a stored credential with an empty secret, the given comment, and the current date.
     pub fn new_ambiguous(comment: &str) -> CredValue {
         CredValue {
             secret: vec![],
@@ -64,9 +69,13 @@ pub struct SelfRef {
 /// ourself in the STORES vector, so we can get a pointer to ourself
 /// whenever we need to build a credential.
 pub struct Store {
+    /// An identifier for this store.
     pub id: String,
+    /// The credentials in this store.
     pub creds: CredMap,
-    pub backing: Option<String>, // the backing file, if any
+    /// The path of the backing file, if any.
+    pub backing: Option<String>,
+    /// The store's mutable weak reference to itself.
     pub self_ref: RwLock<SelfRef>,
 }
 

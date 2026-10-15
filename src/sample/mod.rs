@@ -80,9 +80,11 @@ pretty quickly.
 
  */
 
+/// The credentials of the sample store.
 pub mod credential;
 pub use credential::CredKey;
 
+/// The sample credential store.
 pub mod store;
 pub use store::Store;
 
