@@ -32,4 +32,3 @@ jobs:
         with:
           advanced-security: false
           annotations: true
-          version: 1.30.1
