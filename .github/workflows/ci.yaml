@@ -6,7 +6,6 @@ on:
     branches:
       - '**'
   pull_request:
-  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
