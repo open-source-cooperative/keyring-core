@@ -77,15 +77,15 @@ fn test_entry_methods() {
     ));
     assert!(matches!(
         Entry::new_in_named_store("custom_entry_api", "test", "test"),
-        Err(Error::Invalid(attr, _)) if attr == "store"
+        Err(Error::Invalid(attr, reason)) if attr == "name" && reason == "no such store"
     ));
     assert!(matches!(
         Entry::new_in_named_store_with_modifiers("custom_entry_api", "test", "test", &HashMap::new()),
-        Err(Error::Invalid(attr, _)) if attr == "store"
+        Err(Error::Invalid(attr, reason)) if attr == "name" && reason == "no such store"
     ));
     assert!(matches!(
         Entry::search_in_named_store("custom_entry_api", &HashMap::new()),
-        Err(Error::Invalid(attr, _)) if attr == "store"
+        Err(Error::Invalid(attr, reason)) if attr == "name" && reason == "no such store"
     ));
 
     crate::add_named_store("custom_entry_api", default.clone()).unwrap();

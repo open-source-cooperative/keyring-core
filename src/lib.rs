@@ -227,11 +227,7 @@ impl Entry {
         Ok(entry)
     }
 
-    /// Create an entry for the given `service` and `user`, passing store-specific
-    /// modifiers, in the given `store`.
-    ///
-    /// See the documentation for each credential store to understand what
-    /// modifiers may be specified for that store.
+    /// Create an entry for the given `service` and `user` in the named store.
     ///
     /// # Errors
     ///
@@ -243,7 +239,7 @@ impl Entry {
         match get_named_store(name)? {
             Some(store) => Self::new_in_store(&store, service, user),
             None => Err(Error::Invalid(
-                "store".to_string(),
+                "name".to_string(),
                 "no such store".to_string(),
             )),
         }
@@ -276,6 +272,17 @@ impl Entry {
         Ok(entry)
     }
 
+    /// Create an entry for the given `service` and `user`, passing store-specific
+    /// modifiers, in the given `store`.
+    ///
+    /// See the documentation for each credential store to understand what
+    /// modifiers may be specified for that store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error
+    /// if the `service`, `user`, or `modifier` pairs are not
+    /// acceptable to the given credential store.
     pub fn new_in_store_with_modifiers(
         store: &Arc<CredentialStore>,
         service: &str,
@@ -291,7 +298,7 @@ impl Entry {
     }
 
     /// Create an entry for the given `service` and `user`, passing store-specific
-    /// modifiers, in the named `store`.
+    /// modifiers, in the named store.
     ///
     /// See the documentation for each credential store to understand what
     /// modifiers may be specified for that store.
@@ -310,7 +317,7 @@ impl Entry {
         match get_named_store(name)? {
             Some(store) => Self::new_in_store_with_modifiers(&store, service, user, modifiers),
             None => Err(Error::Invalid(
-                "store".to_string(),
+                "name".to_string(),
                 "no such store".to_string(),
             )),
         }
@@ -362,7 +369,7 @@ impl Entry {
         store.search(spec)
     }
 
-    /// Search the given store for credentials, returning entries that wrap any found.
+    /// Search the named store for credentials, returning entries that wrap any found.
     ///
     /// See the documentation of each credential store for how searches are specified.
     ///
@@ -375,7 +382,7 @@ impl Entry {
         match get_named_store(name)? {
             Some(store) => store.search(spec),
             None => Err(Error::Invalid(
-                "store".to_string(),
+                "name".to_string(),
                 "no such store".to_string(),
             )),
         }
