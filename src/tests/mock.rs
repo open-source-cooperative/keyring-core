@@ -28,20 +28,19 @@ fn test_vendor_and_id() {
 fn test_modifiers() {
     let empty_mods = HashMap::new();
     let name = generate_random_string();
-    get_store().build(&name, &name, Some(&empty_mods)).unwrap();
+    let store = get_store();
+    Entry::new_in_store_with_modifiers(store, &name, &name, &empty_mods).unwrap();
     let non_empty_mods = HashMap::from([("mod-arg", "mod-val")]);
     assert!(matches!(
-        get_store().build("fail", "fail", Some(&non_empty_mods)),
+        Entry::new_in_store_with_modifiers(store, "fail", "fail", &non_empty_mods),
         Err(Error::NotSupportedByStore(_))
     ));
 }
 
 fn entry_new(service: &str, user: &str) -> Entry {
-    get_store()
-        .build(service, user, None)
-        .unwrap_or_else(|err| {
-            panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
-        })
+    Entry::new_in_store(get_store(), service, user).unwrap_or_else(|err| {
+        panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
+    })
 }
 
 // A round-trip password test that doesn't delete the credential afterward
@@ -221,7 +220,7 @@ fn test_get_update_attributes() {
 #[test]
 fn test_search() {
     let store: Arc<CredentialStore> = Store::new().unwrap();
-    let all = store.search(&HashMap::from([])).unwrap();
+    let all = Entry::search_in_store(&store, &HashMap::from([])).unwrap();
     assert!(all.is_empty());
     let all = store
         .search(&HashMap::from([("service", ""), ("user", "")]))
@@ -229,7 +228,7 @@ fn test_search() {
     assert!(all.is_empty());
     let e1 = store.build("foo", "bar", None).unwrap();
     e1.set_password("e1").unwrap();
-    let all = store.search(&HashMap::from([])).unwrap();
+    let all = Entry::search_in_store(&store, &HashMap::from([])).unwrap();
     assert_eq!(all.len(), 1);
     let all = store
         .search(&HashMap::from([("service", ""), ("user", "")]))
@@ -237,15 +236,15 @@ fn test_search() {
     assert_eq!(all.len(), 1);
     let e2 = store.build("foo", "bam", None).unwrap();
     e2.set_password("e2").unwrap();
-    let one = store.search(&HashMap::from([("user", "m")])).unwrap();
+    let one = Entry::search_in_store(&store, &HashMap::from([("user", "m")])).unwrap();
     assert_eq!(one.len(), 1);
     let one = store
         .search(&HashMap::from([("service", "foo"), ("user", "bar")]))
         .unwrap();
     assert_eq!(one.len(), 1);
-    let two = store.search(&HashMap::from([("service", "foo")])).unwrap();
+    let two = Entry::search_in_store(&store, &HashMap::from([("service", "foo")])).unwrap();
     assert_eq!(two.len(), 2);
-    let all = store.search(&HashMap::from([("foo", "bar")])).unwrap();
+    let all = Entry::search_in_store(&store, &HashMap::from([("foo", "bar")])).unwrap();
     assert_eq!(all.len(), 2);
 }
 

@@ -213,7 +213,44 @@ impl Entry {
         Ok(entry)
     }
 
-    /// Create an entry for the given `service` and `user`, passing store-specific modifiers.
+    /// Create an entry for the given `service` and `user` in the given `store`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error
+    /// if the `service` or `user` values are not
+    /// acceptable to the credential store.
+    pub fn new_in_store(store: &Arc<CredentialStore>, service: &str, user: &str) -> Result<Entry> {
+        debug!("creating entry with service {service}, user {user} in store {store:?}");
+        let entry = store.build(service, user, None)?;
+        debug!("created entry {:?}", entry.inner);
+        Ok(entry)
+    }
+
+    /// Create an entry for the given `service` and `user`, passing store-specific
+    /// modifiers, in the given `store`.
+    ///
+    /// See the documentation for each credential store to understand what
+    /// modifiers may be specified for that store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error if `name` is `"default"`, if no store
+    /// with that name exists, or if the `service` or `user` values are not acceptable to
+    /// the named store.
+    pub fn new_in_named_store(name: &str, service: &str, user: &str) -> Result<Entry> {
+        debug!("creating entry with service {service}, user {user} in named store {name}");
+        match get_named_store(name)? {
+            Some(store) => Self::new_in_store(&store, service, user),
+            None => Err(Error::Invalid(
+                "store".to_string(),
+                "no such store".to_string(),
+            )),
+        }
+    }
+
+    /// Create an entry for the given `service` and `user`, passing store-specific
+    /// modifiers.
     ///
     /// The default credential builder is used.
     ///
@@ -237,6 +274,46 @@ impl Entry {
         let entry = build_default_credential(service, user, Some(modifiers))?;
         debug!("created entry {:?}", entry.inner);
         Ok(entry)
+    }
+
+    pub fn new_in_store_with_modifiers(
+        store: &Arc<CredentialStore>,
+        service: &str,
+        user: &str,
+        modifiers: &HashMap<&str, &str>,
+    ) -> Result<Entry> {
+        debug!(
+            "creating entry with service {service}, user {user}, and mods {modifiers:?} in store {store:?}"
+        );
+        let entry = store.build(service, user, Some(modifiers))?;
+        debug!("created entry {:?}", entry.inner);
+        Ok(entry)
+    }
+
+    /// Create an entry for the given `service` and `user`, passing store-specific
+    /// modifiers, in the named `store`.
+    ///
+    /// See the documentation for each credential store to understand what
+    /// modifiers may be specified for that store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error if `name` is `"default"`, if no store
+    /// with that name exists, or if the `service`, `user`, or `modifier` pairs are not
+    /// acceptable to the named store.
+    pub fn new_in_named_store_with_modifiers(
+        name: &str,
+        service: &str,
+        user: &str,
+        modifiers: &HashMap<&str, &str>,
+    ) -> Result<Entry> {
+        match get_named_store(name)? {
+            Some(store) => Self::new_in_store_with_modifiers(&store, service, user, modifiers),
+            None => Err(Error::Invalid(
+                "store".to_string(),
+                "no such store".to_string(),
+            )),
+        }
     }
 
     /// Create an entry that wraps a pre-existing credential. The credential can
@@ -266,6 +343,41 @@ impl Entry {
         match guard.inner.as_ref().and_then(|map| map.get("default")) {
             Some(store) => store.search(spec),
             None => Err(Error::NoDefaultStore),
+        }
+    }
+
+    /// Search the given store for credentials, returning entries that wrap any found.
+    ///
+    /// See the documentation of each credential store for how searches are specified.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error if the `spec` value is not acceptable
+    /// to the given credential store.
+    pub fn search_in_store(
+        store: &Arc<CredentialStore>,
+        spec: &HashMap<&str, &str>,
+    ) -> Result<Vec<Entry>> {
+        debug!("searching for {spec:?} in store {store:?}");
+        store.search(spec)
+    }
+
+    /// Search the given store for credentials, returning entries that wrap any found.
+    ///
+    /// See the documentation of each credential store for how searches are specified.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [Invalid][Error::Invalid] error if `name` is `"default"`, if no store
+    /// with that name exists, or if the `spec` value is not acceptable to the named
+    /// store.
+    pub fn search_in_named_store(name: &str, spec: &HashMap<&str, &str>) -> Result<Vec<Entry>> {
+        match get_named_store(name)? {
+            Some(store) => store.search(spec),
+            None => Err(Error::Invalid(
+                "store".to_string(),
+                "no such store".to_string(),
+            )),
         }
     }
 

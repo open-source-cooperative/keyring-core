@@ -29,7 +29,7 @@ fn test_entry_methods() {
     let last = crate::unset_default_store().unwrap();
     assert!(Arc::ptr_eq(&last, &default));
     assert!(crate::get_default_store().is_none());
-    crate::set_default_store(default);
+    crate::set_default_store(default.clone());
     assert!(matches!(
         Entry::new("test", "test"),
         Err(Error::Invalid(x, y)) if x == "no-mods" && y == "0"
@@ -43,9 +43,72 @@ fn test_entry_methods() {
         Err(Error::Invalid(x, y)) if x == "mods" && y == "2"
     ));
     assert!(matches!(
+        Entry::new_in_store(&default, "test", "test"),
+        Err(Error::Invalid(x, y)) if x == "no-mods" && y == "0"
+    ));
+    assert!(matches!(
+        Entry::new_in_store_with_modifiers(&default, "test", "test", &HashMap::new()),
+        Err(Error::Invalid(x, y)) if x == "mods" && y == "0"
+    ));
+    assert!(matches!(
+        Entry::new_in_store_with_modifiers(
+            &default,
+            "test",
+            "test",
+            &HashMap::from([("k1", "v1"), ("k2", "v2")])
+        ),
+        Err(Error::Invalid(x, y)) if x == "mods" && y == "2"
+    ));
+    assert!(matches!(
         Entry::search(&HashMap::new()),
         Err(Error::NotSupportedByStore(_))
     ));
     crate::unset_default_store();
     assert!(crate::get_default_store().is_none());
+
+    // Named store tests
+    assert!(matches!(
+        Entry::new_in_named_store("default", "test", "test"),
+        Err(Error::Invalid(attr, _)) if attr == "name"
+    ));
+    assert!(matches!(
+        Entry::new_in_named_store_with_modifiers("default", "test", "test", &HashMap::new()),
+        Err(Error::Invalid(attr, _)) if attr == "name"
+    ));
+    assert!(matches!(
+        Entry::new_in_named_store("custom_entry_api", "test", "test"),
+        Err(Error::Invalid(attr, _)) if attr == "store"
+    ));
+    assert!(matches!(
+        Entry::new_in_named_store_with_modifiers("custom_entry_api", "test", "test", &HashMap::new()),
+        Err(Error::Invalid(attr, _)) if attr == "store"
+    ));
+    assert!(matches!(
+        Entry::search_in_named_store("custom_entry_api", &HashMap::new()),
+        Err(Error::Invalid(attr, _)) if attr == "store"
+    ));
+
+    crate::add_named_store("custom_entry_api", default.clone()).unwrap();
+    assert!(matches!(
+        Entry::new_in_named_store("custom_entry_api", "test", "test"),
+        Err(Error::Invalid(x, y)) if x == "no-mods" && y == "0"
+    ));
+    assert!(matches!(
+        Entry::new_in_named_store_with_modifiers("custom_entry_api", "test", "test", &HashMap::new()),
+        Err(Error::Invalid(x, y)) if x == "mods" && y == "0"
+    ));
+    assert!(matches!(
+        Entry::new_in_named_store_with_modifiers(
+            "custom_entry_api",
+            "test",
+            "test",
+            &HashMap::from([("k1", "v1"), ("k2", "v2")])
+        ),
+        Err(Error::Invalid(x, y)) if x == "mods" && y == "2"
+    ));
+    assert!(matches!(
+        Entry::search_in_named_store("custom_entry_api", &HashMap::new()),
+        Err(Error::NotSupportedByStore(_))
+    ));
+    crate::drop_named_store("custom_entry_api").unwrap();
 }

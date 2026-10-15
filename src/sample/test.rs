@@ -29,19 +29,15 @@ fn test_vendor_and_id() {
 }
 
 fn entry_new(service: &str, user: &str) -> Entry {
-    get_store()
-        .build(service, user, None)
-        .unwrap_or_else(|err| {
-            panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
-        })
+    Entry::new_in_store(get_store(), service, user).unwrap_or_else(|err| {
+        panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
+    })
 }
 
 fn entry_new_with_modifiers(service: &str, user: &str, mods: &HashMap<&str, &str>) -> Entry {
-    get_store()
-        .build(service, user, Some(mods))
-        .unwrap_or_else(|err| {
-            panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
-        })
+    Entry::new_in_store_with_modifiers(get_store(), service, user, mods).unwrap_or_else(|err| {
+        panic!("Couldn't create entry (service: {service}, user: {user}): {err:?}")
+    })
 }
 
 // A round-trip password test that doesn't delete the credential afterward
