@@ -80,9 +80,11 @@ pretty quickly.
 
  */
 
+/// Implements the `CredentialApi` for the sample store.
 pub mod credential;
 pub use credential::CredKey;
 
+/// Implements the `CredentialStoreApi` for the sample store.
 pub mod store;
 pub use store::Store;
 
