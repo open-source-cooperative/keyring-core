@@ -33,5 +33,8 @@ doc-comment = "0.3"
 env_logger = "0.11"
 fastrand = "2"
 
+[lints.rust]
+unreachable_pub = "warn"
+
 [package.metadata.docs.rs]
 features = ["sample"]

@@ -68,7 +68,7 @@ fn test_round_trip(case: &str, entry: &Entry, in_pass: &str) {
 }
 
 // A round-trip secret test that does delete the credential afterward
-pub fn test_round_trip_secret(case: &str, entry: &Entry, in_secret: &[u8]) {
+fn test_round_trip_secret(case: &str, entry: &Entry, in_secret: &[u8]) {
     entry
         .set_secret(in_secret)
         .unwrap_or_else(|err| panic!("Can't set secret for {case}: {err:?}"));
