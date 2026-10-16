@@ -10,13 +10,13 @@ mod error;
 mod lib;
 mod mock;
 
-pub fn generate_random_string() -> String {
+pub(crate) fn generate_random_string() -> String {
     use fastrand;
     use std::iter::repeat_with;
     repeat_with(fastrand::alphanumeric).take(30).collect()
 }
 
-pub fn generate_random_bytes() -> Vec<u8> {
+pub(crate) fn generate_random_bytes() -> Vec<u8> {
     use fastrand;
     use std::iter::repeat_with;
     repeat_with(|| fastrand::u8(..)).take(24).collect()
