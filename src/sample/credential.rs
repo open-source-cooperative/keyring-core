@@ -13,7 +13,9 @@ use crate::{Credential, Entry, Error, Result, api::CredentialApi};
 /// Credentials are specified by a pair of service name and username.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct CredId {
+    /// The service name.
     pub service: String,
+    /// The username.
     pub user: String,
 }
 
@@ -28,8 +30,11 @@ pub struct CredId {
 /// but they do not _specify_ a credential.
 #[derive(Clone)]
 pub struct CredKey {
+    /// The store that holds this credential.
     pub store: Arc<Store>,
+    /// The service and user pair for this credential.
     pub id: CredId,
+    /// The UUID of the credential this key wraps, if any.
     pub uuid: Option<String>,
 }
 

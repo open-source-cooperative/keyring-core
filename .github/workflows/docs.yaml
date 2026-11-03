@@ -31,4 +31,4 @@ jobs:
       - name: Build docs
         run: cargo doc --no-deps --features sample
         env:
-          RUSTDOCFLAGS: -D warnings
+          RUSTDOCFLAGS: -D warnings -D missing_docs
