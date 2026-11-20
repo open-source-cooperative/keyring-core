@@ -12,6 +12,7 @@ is not much of a burden on the platform-specific store providers.)
 
 use crate::Entry;
 
+/// A boxed platform-specific error.
 pub type PlatformError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Each variant of the `Error` enum provides a summary of the error.
@@ -73,6 +74,7 @@ pub enum Error {
     NotSupportedByStore(String),
 }
 
+/// A `Result` type with [`Error`] as its error value.
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl std::fmt::Display for Error {

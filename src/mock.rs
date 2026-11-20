@@ -51,7 +51,9 @@ use crate::{Credential, CredentialPersistence, Entry, Error, Result};
 /// The mutex is used to make sure these are Sync.
 #[derive(Debug)]
 pub struct Cred {
+    /// The service name and username that identify this credential.
     pub specifiers: (String, String),
+    /// The credential's data.
     pub inner: Mutex<RefCell<CredData>>,
 }
 
@@ -64,7 +66,9 @@ pub struct Cred {
 /// Most credential store implementations hide their internals.)
 #[derive(Debug, Default)]
 pub struct CredData {
+    /// The stored secret, or `None` if the credential has none.
     pub secret: Option<Vec<u8>>,
+    /// The error the next operation on this credential returns, if any.
     pub error: Option<Error>,
 }
 
@@ -195,7 +199,9 @@ impl Cred {
 /// Yes, a hashmap might be faster, but this is
 /// way simpler.
 pub struct Store {
+    /// The unique ID for this store instance.
     pub id: String,
+    /// The credentials in this store.
     pub inner: Mutex<RefCell<Vec<Arc<Cred>>>>,
 }
 
@@ -209,6 +215,7 @@ impl std::fmt::Debug for Store {
 }
 
 impl Store {
+    /// Create a new mock store with no credentials.
     pub fn new() -> Result<Arc<Self>> {
         Ok(Arc::new(Store {
             id: format!(
