@@ -8,7 +8,7 @@ fn main() {
 fn single_store() -> Result<()> {
     // create the store and set it as the default store
     keyring_core::set_default_store(mock::Store::new()?);
-    // make an entry in the store and set its secret
+    // make an entry in the store
     let entry = Entry::new("my-service", "my-name")?;
     // entries do not have associated credentials until their password/secret is first set
     assert!(matches!(entry.get_credential(), Err(Error::NoEntry)));
